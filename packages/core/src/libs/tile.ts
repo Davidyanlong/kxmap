@@ -8,6 +8,7 @@ class Tile {
   loaded: boolean = false;
   data: VectorTile;
   geometry: Geometry;
+  layers:any
   constructor(url: string, callback: (...args: any[]) => void) {
     loadBuffer(url, (err: any, data: number[]) => {
       if (!err) {
@@ -23,30 +24,48 @@ class Tile {
   // 将瓦片添加的地图中
   addToMap(map: Map) {
     // Transfer the geometries to the map's painter.
-    this.geometry = new Geometry();
+    var geometry = this.geometry = new Geometry();
 
-    // 读取获取到的数据，并转换为渲染数据
-    var layer = this.data.layers.water;
-    if (layer) {
-      this.geometry.addLines(layer);
-    }
+    var layers = this.layers = {};
 
-    var layer = this.data.layers.road;
-    if (layer) {
-      this.geometry.addLines(layer);
-    }
+    var tile = this.data;
+    map.style.mapping.forEach(function(mapping:any) {
+      debugger
+        var layer = tile.layers[mapping.layer];
+        if (layer) {
+            var buckets:Record<string,any> = {}; 
+            for (var key in mapping.sort) buckets[key] = [];
 
-    var layer = this.data.layers.building;
-    if (layer) {
-      this.geometry.addLines(layer);
-    }
+            for (var i = 0; i < layer.length; i++) {
+                var feature = layer.feature(i);
+                for (var key in mapping.sort) {
+                    if (mapping.sort[key] === true ||
+                        mapping.sort[key].indexOf(feature[mapping.field]) >= 0) {
+                        buckets[key].push(feature);
+                        break;
+                    }
+                }
+            }
 
-    // Initialize vertex buffers
-    // if (!this.geometry.buffer) {
-    //     this.geometry.buffer = geometry.bind(gl);
-    // }
+            // All features are sorted into buckets now. Add them to the geometry
+            // object and remember the position/length
+            for (var key in buckets) {
+                var layer = layers[key] = {
+                    line: geometry.lineOffset(),
+                    fill: geometry.fillOffset()
+                };
 
-    // map.painter
+                // Add all the features to the geometry
+                var bucket = buckets[key];
+                for (var i = 0; i < bucket.length; i++) {
+                    bucket[i].drawNative(geometry);
+                }
+
+                layer.lineEnd = geometry.lineOffset();
+                layer.fillEnd = geometry.fillOffset();
+            }
+        }
+    });
   }
 
   removeFromMap(map: Map) {

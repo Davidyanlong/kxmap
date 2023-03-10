@@ -4,6 +4,7 @@ import vertex from "../shaders/vertex";
 import { DEBUG } from "./constant";
 import type Tile from "./tile";
 import { mat4 } from "gl-matrix";
+import { webglBufferType } from './geometry'
 
 type shaderType = "fragment" | "vertex";
 
@@ -18,13 +19,11 @@ class GLPainter {
   shader: WebGLProgram;
   position: number;
   color: WebGLUniformLocation;
+  pointSize:WebGLUniformLocation;
   projection: WebGLUniformLocation;
   modelView: WebGLUniformLocation;
-  backgroundBuffer: {
-    data: WebGLBuffer;
-    itemSize: number;
-    numItems: number;
-  };
+  backgroundBuffer: webglBufferType;
+  debugBuffer: webglBufferType
   constructor(gl: WebGLRenderingContext) {
     this.gl = gl;
     this.width = (this.gl.canvas as HTMLCanvasElement).offsetWidth;
@@ -38,6 +37,10 @@ class GLPainter {
 
     // @ts-ignore
     gl.verbose = true;
+
+    gl.clearColor(0, 0, 0, 0);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.enable(gl.BLEND);
 
     // Initialize model view matrix
     this.mvMatrix = mat4.create();
@@ -74,6 +77,7 @@ class GLPainter {
       shader,
       "uColor"
     ) as WebGLUniformLocation;
+    this.pointSize = gl.getUniformLocation(shader, "uPointSize") as WebGLUniformLocation;;
     this.projection = gl.getUniformLocation(
       shader,
       "uPMatrix"
@@ -86,23 +90,30 @@ class GLPainter {
     gl.uniformMatrix4fv(this.projection, false, this.pMatrix);
     gl.uniformMatrix4fv(this.modelView, false, this.mvMatrix);
 
-    //     // Setup debug buffers
-    //     this.debugOverlay = gl.createBuffer();
-    //     this.debugOverlay.itemSize = 3;
-    //     this.debugOverlay.numItems = 5;
-    var background = [
-      -32768, -32768, 0, 32767, -32768, 0, -32768, 32767, 0, 32767, 32767, 0,
-    ];
+    var background = [ -32768, -32768, 32767, -32768, -32768, 32767, 32767, 32767];
     var backgroundArray = new Int16Array(background);
     this.backgroundBuffer = {
       data: gl.createBuffer() as WebGLBuffer,
-      itemSize: 3,
+      itemSize: 2,
       numItems: background.length / 3,
     };
     gl.bindBuffer(gl.ARRAY_BUFFER, this.backgroundBuffer.data);
     gl.bufferData(gl.ARRAY_BUFFER, backgroundArray, gl.STATIC_DRAW);
 
-    if (DEBUG) console.timeEnd("GLPainter#setup");
+    // 测试
+    var debug = [ 0, 0, /**/ 4095, 0, /**/ 4095, 4095, /**/ 0, 4095, /**/ 0, 0];
+    var debugArray = new Int16Array(debug);
+
+    this.debugBuffer = {
+      data:gl.createBuffer() as WebGLBuffer,
+      itemSize:2,
+      numItems:debug.length / 2
+    } 
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.debugBuffer.data);
+    gl.bufferData(gl.ARRAY_BUFFER, debugArray, gl.STATIC_DRAW);
+
+
+    if (DEBUG) console.timeEnd('GLPainter#setup');
   }
 
   getShader(type: shaderType, shaderCode: string) {
@@ -141,26 +152,26 @@ class GLPainter {
     x: number,
     y: number,
     transform: ITransform,
+    size:number,
     pixelRatio: number
   ) {
-    var dim = 1 << z;
+    const dim = 1 << z;
 
     // Flip y coordinate; WebGL origin is bottom left.
     y = dim - y - 1;
 
     // 当前缩放比例下，瓦片的相对大小 size >=256 && size < 512
-    var size = (transform.scale * worldSize) / dim;
-    var center = (transform.scale * worldSize * pixelRatio) / 2;
+    var scale = transform.scale * size / dim;
 
     // Calculate viewport
     // viewport X
-    var vpX = (transform.x + size * x) * pixelRatio;
+    var vpX = (transform.x + scale * x) * pixelRatio;
     // viewport Y
-    var vpY = (transform.y + size * y) * pixelRatio;
+    var vpY = (transform.y + scale * y) * pixelRatio;
     // viewport width
-    var vpWidth = size * pixelRatio;
+    var vpWidth = scale * pixelRatio;
     // viewport height
-    var vpHeight = size * pixelRatio;
+    var vpHeight = scale * pixelRatio;
     // viewport X 小数部分
     var vpDXBegin = vpX - Math.floor(vpX);
     // viewport Y 小数部分
@@ -176,74 +187,18 @@ class GLPainter {
       Math.round(vpWidth + vpDXBegin + vpDXEnd),
       Math.round(vpHeight + vpDYBegin + vpDYEnd)
     );
-
-    // if(DEBUG) console.log('viewport', Math.round(vpX - vpDXBegin),
-    // Math.round(vpY - vpDYBegin),
-    // Math.round(vpWidth + vpDXBegin + vpDXEnd),
-    // Math.round(vpHeight + vpDYBegin + vpDYEnd))
-
-    //     var gl = this.gl;
-    //     gl.viewport(x * devicePixelRatio, y * devicePixelRatio, size * devicePixelRatio, size * devicePixelRatio);
-
-    //     var dx = box.factor * box.width / (2 * box.factor + 1);
-    //     var dy = box.factor * box.height / (2 * box.factor + 1);
-    //     mat4.ortho(
-    //         dx,
-    //         box.width - dx,
-    //         box.height - dy,
-    //         dy,
-    //         1, 10,
-    //         this.pMatrix
-    //     );
-
-    //     // Modify debug buffer to correspond to current crop factor.
-    //     // var vertices = [
-    //     //     dx + 1, dy + 1, 1,
-    //     //     box.width - dx, dy + 1, 1,
-    //     //     box.width - dx, box.height - dy, 1,
-    //     //     dx + 1, box.height - dy, 1,
-    //     //     dx + 1, dy + 1, 1
-    //     // ];
-    //     // gl.bindBuffer(gl.ARRAY_BUFFER, this.debugOverlay);
-    //     // gl.bufferData(gl.ARRAY_BUFFER, new Uint16Array(vertices), gl.STATIC_DRAW);
-
-    //     // var border = [];
-    //     // border.push(0, 0);
-    //     // border.push(32768-8192, 32768);
-    //     // border.push(32768, 32768-8192);
-
-    //     // border.push(65535, 0);
-    //     // border.push(32768, 32768-8192);
-    //     // border.push(32786+8192, 32768);
-
-    //     // border.push(0, 65535);
-    //     // border.push(32768-8192, 32768);
-    //     // border.push(32768, 32768+8192);
-
-    //     // border.push(65535, 65535);
-    //     // border.push(32768, 32768+8192);
-    //     // border.push(32768+8192, 32768);
-
-    //     // var borderBuffer = gl.createBuffer();
-    //     // borderBuffer.itemSize = 2;
-    //     // borderBuffer.numItems = border.length / borderBuffer.itemSize;
-    //     // gl.bindBuffer(gl.ARRAY_BUFFER, borderBuffer);
-    //     // gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(border), gl.STATIC_DRAW);
-    //     // gl.vertexAttribPointer(this.position, borderBuffer.itemSize, gl.FLOAT, false, 0, 0);
-    //     // gl.uniform4f(this.color, 0, 0, 0, 0.2);
-    //     // gl.drawArrays(gl.TRIANGLES, 0, borderBuffer.numItems);
   }
 
-  draw(tile: Tile, zoom: number) {
+  draw(tile: Tile, style: any[]) {
+    var painter = this;
     var gl = this.gl;
 
-    // register the tile's geometry with the gl context, if it isn't bound yet.
-    var buffer = tile.geometry.bind(gl);
-    if (!buffer) return;
 
-    //     // TODO: respect the buffer in the data
-    //     // TODO: just paint the actual lines.
-    //     // TODO: just
+    // register the tile's geometry with the gl context, if it isn't bound yet.
+    if (!tile.geometry.bind(gl)) {
+      return;
+    }
+
 
     // Draw background
     gl.bindBuffer(gl.ARRAY_BUFFER, this.backgroundBuffer.data);
@@ -255,33 +210,37 @@ class GLPainter {
       0,
       0
     );
-    // 不同等级颜色不同
-    gl.uniform4f(this.color, 1 - zoom / 18, zoom / 18, 1, 1);
+    gl.uniform4f(this.color, 0.9098, 0.8784, 0.8471, 1);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, this.backgroundBuffer.numItems);
 
-    //     var start = Date.now();
-    //     // Draw vertex buffer
-    gl.bindBuffer(gl.ARRAY_BUFFER, buffer.data);
-    gl.uniform4f(this.color, 0, 0, 0, 1);
-    gl.lineWidth(1);
-    gl.vertexAttribPointer(
-      this.position,
-      buffer.itemSize,
-      gl.SHORT,
-      false,
-      0,
-      0
-    );
-    gl.drawArrays(gl.LINE_STRIP, 0, buffer.numItems);
+    // Vertex Buffer
+    gl.bindBuffer(gl.ARRAY_BUFFER, tile.geometry.vertexBuffer.data);
+    gl.vertexAttribPointer(this.position, tile.geometry.vertexBuffer.itemSize, gl.SHORT, false, 0, 0);
 
-    //     // Draw debug overlay
-    //     // gl.bindBuffer(gl.ARRAY_BUFFER, this.debugOverlay);
-    //     // gl.uniform4f(this.color, 1, 0, 0, 1);
-    //     // gl.lineWidth(1);
-    //     // gl.vertexAttribPointer(this.position, this.debugOverlay.itemSize, gl.UNSIGNED_SHORT, false, 0, 0);
-    //     // gl.drawArrays(gl.LINE_STRIP, 0, this.debugOverlay.numItems);
+    style.forEach(function(info) {
+      var layer = tile.layers[info.data];
+      if (layer) {
+          gl.uniform4fv(painter.color, info.color);
+          if (info.type === 'fill') {
+              gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, tile.geometry.fillElementBuffer.data);
+              gl.drawElements(gl.TRIANGLE_STRIP, layer.fillEnd - layer.fill, gl.UNSIGNED_SHORT, layer.fill * 2);
+          } else {
+              var width = Math.min(10, info.width || 1);
+              gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, tile.geometry.lineElementBuffer.data);
 
-    //     // console.warn('draw', Date.now() - start);
+              if (width > 2) {
+                  gl.uniform1f(painter.pointSize, width - 2);
+                  gl.drawElements(gl.POINTS, layer.lineEnd - layer.line, gl.UNSIGNED_SHORT, layer.line * 2);
+              }
+
+              gl.lineWidth(width);
+              gl.drawElements(gl.LINE_STRIP, layer.lineEnd - layer.line, gl.UNSIGNED_SHORT, layer.line * 2);
+          }
+      }
+  });
+
+    
+
   }
 }
 

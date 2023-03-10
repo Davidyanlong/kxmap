@@ -1,53 +1,97 @@
+export type webglBufferType = {
+  data: WebGLBuffer;
+  itemSize: number;
+  numItems: number;
+};
+export type verticesType = {
+  data: Int16Array;
+  pos: number;
+  idx: number;
+};
+export type lineType = {
+  data: Uint16Array;
+  pos: number;
+};
 class Geometry {
-  vertices: {
-    data: Int16Array;
-    pos: number;
-  };
-  buffer: {
-    data: WebGLBuffer;
-    itemSize: number;
-    numItems: number;
-  };
+  vertices: verticesType;
+  lineElements: lineType;
+  fillElements: lineType;
+  vertexBuffer: webglBufferType;
+  lineElementBuffer: webglBufferType;
+  fillElementBuffer: webglBufferType;
   constructor() {
     this.vertices = {
-      data: new Int16Array(250000),
+      data: new Int16Array(10000),
+      pos: 0,
+      idx: 0,
+    };
+
+    this.lineElements = {
+      data: new Uint16Array(10000),
       pos: 0,
     };
-  }
-  addLines(layer: any) {
-    console.time('Geometry#addLines');
-    for (var i = 0; i < layer.length; i++) {
-      var feature = layer.feature(i);
-      feature.drawNative(this.vertices);
-    }
 
-    // array[array.pos++] = 1000;
-    // array[array.pos++] = 1000;
-    // array[array.pos++] = 0; // invisible
-    // array[array.pos++] = 1000;
-    // array[array.pos++] = 1000;
-    // array[array.pos++] = 0; // invisible
-    // console.warn(this.vertices.pos);
-    // console.timeEnd('Geometry#addLines');
+    this.fillElements = {
+      data: new Uint16Array(10000),
+      pos: 0,
+    };
+
+    // Add the culled mvp vertex
+    this.vertices.data[this.vertices.pos++] = 32767;
+    this.vertices.data[this.vertices.pos++] = 32767;
+    this.vertices.idx++;
   }
+
+  lineOffset() {
+    return this.lineElements.pos;
+  }
+
+  fillOffset() {
+    return this.fillElements.pos;
+  }
+
   bind(gl: WebGLRenderingContext) {
-    if (!this.buffer) {
-      // console.time('Geometry#bind');
-      var buffer = gl.createBuffer() as WebGLBuffer;
-      const itemSize = 3;
-      const numItems = this.vertices.pos / itemSize;
-      gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    if (!this.vertexBuffer) {
+      var vertexBuffer = gl.createBuffer() as WebGLBuffer;
+      let itemSize = 2;
+      let numItems = this.vertices.pos / itemSize;
+      gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
       gl.bufferData(gl.ARRAY_BUFFER, this.vertices.data, gl.STATIC_DRAW);
-      this.buffer = {
-        data:buffer,
+      this.vertexBuffer = {
+        data: vertexBuffer,
         itemSize,
         numItems,
       };
-      // console.timeEnd('Geometry#bind');
     }
 
-    return this.buffer;
+    if (!this.lineElementBuffer) {
+      var lineElementBuffer = gl.createBuffer() as WebGLBuffer;
+      let itemSize = 1;
+      let numItems = this.lineElements.pos / itemSize;
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, lineElementBuffer);
+      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, this.lineElements.data, gl.STATIC_DRAW);
+      this.lineElementBuffer = {
+        data: lineElementBuffer,
+        itemSize,
+        numItems,
+      };
+    }
+
+    if (!this.fillElementBuffer) {
+      var fillElementBuffer = gl.createBuffer() as WebGLBuffer;
+      let itemSize = 1;
+      let numItems = this.fillElements.pos / itemSize;
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, fillElementBuffer);
+      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, this.fillElements.data, gl.STATIC_DRAW);
+      this.fillElementBuffer = {
+        data: fillElementBuffer,
+        itemSize,
+        numItems,
+      };
+    }
+
+    return true;
   }
 }
 
-export default Geometry
+export default Geometry;

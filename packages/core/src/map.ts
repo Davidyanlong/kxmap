@@ -5,6 +5,7 @@ import Tile from "./libs/tile";
 import MRUCache from "./utils/MRUCache";
 import { clamp } from "./utils/common";
 import { _ } from "./utils/underscore";
+import { parse_style,zoom_style, z_order } from './libs/parse'
 
 interface IMapConfig {
   urls: string[]; // 可用的瓦片请请求地址池
@@ -13,6 +14,7 @@ interface IMapConfig {
   maxZoom: number; // 最大等级
   minTileZoom: number; // 瓦片的最小等级
   maxTileZoom: number; // 瓦片的最大等级
+  style:Record<string,any>
 }
 
 export interface ITransform {
@@ -51,6 +53,9 @@ class Map {
   painter: GLPainter;
   interaction: Interaction;
   dirty: boolean;
+  style:Record<string,any>
+  size:number 
+  private _updateHashTimeout:NodeJS.Timeout | null
 
   constructor(canvas: HTMLCanvasElement, config: IMapConfig) {
     // 初始化瓦片数据集
@@ -63,20 +68,27 @@ class Map {
     };
 
     // 初始化瓦片缓存
-    this.cache = new MRUCache(32);
+    // TODO: Rework MRU cache handling (flickering!)
+    this.cache = new MRUCache(0);
 
     // 初始化瓦片请求地址列表
     this.urls = config.urls || [];
 
     // 初始化瓦片的等级列表
     this.zooms = config.zooms || [0];
-    this.minZoom = config.minZoom || 0;
-    this.maxZoom = config.maxZoom || 19;
+    this.minZoom = config.minZoom || -1;
+    this.maxZoom = config.maxZoom || 18;
     this.minTileZoom = _.first(this.zooms) as number;
     this.maxTileZoom = _.last(this.zooms) as number;
     // this.zoom = config.zoom || 0;
     // this.lat = config.lat || 0;
     // this.lon = config.lon || 0;
+
+    this.style = config.style;
+    this.style.layers = parse_style(this.style.layers, this.style.constants);
+
+
+    this.size = 512;
 
     // 初始化画布
     this.setupCanvas();
@@ -88,6 +100,7 @@ class Map {
     this.setupEvents();
 
     this.dirty = false;
+    this.updateStyle();
     this.updateTiles();
   }
 
@@ -133,26 +146,29 @@ class Map {
     // 地图大小
     this.width = this.canvas.dom.offsetWidth;
     this.height = this.canvas.dom.offsetHeight;
-    // this.transform = {
-    //     x: (this.width - 512) / 2,
-    //     y: (this.height - 512) / 2,
-    //     scale: 2
-    // };
-
+    
+    const scale = 2;
     // 初始化
     this.transform = {
-      x: 0,
-      y: 0,
-      scale: 1,
+        x: this.width / 2 - scale * this.size / 2,
+        y: this.height / 2 - scale * this.size / 2,
+        scale: scale
     };
-
-    if (DEBUG) console.timeEnd("Map#setupTransform");
+  
+    if (location.hash) {
+      var match = location.hash.match(/^#(\d+(?:\.\d+))\/(-?\d+(?:\.\d+))\/(-?\d+(?:\.\d+))$/);
+      if (match) {
+          this.transform.scale = +match[1];
+          this.transform.x = +match[2];
+          this.transform.y = +match[3];
+      }
+  }
   }
 
   setupPainter() {
     if (DEBUG) console.time("Map#setupPainter");
     // WebGL 上下文
-    const gl = this.canvas.dom.getContext("webgl", { antialias: true });
+    const gl = this.canvas.dom.getContext("webgl", { antialias: true, alpha: false});
     if (!gl) {
       alert("Failed to initialize WebGL");
       return;
@@ -186,6 +202,7 @@ class Map {
   translate(x: number, y: number) {
     this.transform.x += x;
     this.transform.y -= y;
+    this.updateHash();
   }
   // 更新瓦片
   updateTiles() {
@@ -194,6 +211,8 @@ class Map {
     
     // 当前的地图等级
     let zoom = Math.log(this.transform.scale) / Math.log(2);
+     // TODO: Increase maxcoveringzoom. To do this, we have to clip the gl viewport
+    // to the actual visible canvas and shift the projection matrix
     // 存在的最大等级
     let maxCoveringZoom = Math.min(this.maxTileZoom, zoom + 3);
     // 存在的最小等级
@@ -329,7 +348,7 @@ class Map {
   // 获取当前等级下的瓦片
   getCoveringTiles(scale: number) {
     // 单个瓦片的大小
-    var size = 256;
+    var size =this.size;
     // 瓦片可绘制的范围
     var extent = this.getPixelExtent(this.transform);
     // if (DEBUG) console.log('Map#extent',extent);
@@ -385,8 +404,6 @@ class Map {
   }
   // 创建或获取一个瓦片
   addTile(id: number) {
-    // console.warn('add', Tile.asString(id));
-    // if (DEBUG) console.time('Map#addTile', Tile.asString(id));
     // tiles数据集中是否存在，存在直接返回
     if (this.tiles[id]) return this.tiles[id];
 
@@ -417,7 +434,6 @@ class Map {
   }
   // 根据ID移除瓦片
   removeTile(id: number) {
-    // console.warn('remove', Tile.asString(id));
     var tile = this.tiles[id];
     if (tile) {
       tile.removeFromMap(this);
@@ -462,47 +478,16 @@ class Map {
 
     // if (DEBUG) console.timeEnd('Map#render');
   };
-  renderTile(tile: Tile, id: number) {
+  renderTile(tile: Tile, id: number,style?:any) {
     // 通过Tile ID 计算 z y x 值
     var pos = Tile.fromID(id);
     var z = pos.z,
       x = pos.x,
       y = pos.y;
 
-    // console.warn(tile);
-
-    // Find out what position we should paint this at.
-
-    // var zoom = Math.floor(Math.log(this.transform.scale) / Math.log(2));
-    // var zoom = z;
-
-    // Get pixel offset of top left corner of viewport
-    // var left = 256 * this.transform.scale * this.transform.x - this.width / 2;
-    // var top = 256 * this.transform.scale * this.transform.y - this.height / 2;
-    // var size = this.transform.scale * 256 / (1 << zoom);
-
-    // Get pixel offset of the tile to render in global canvas.
-    // var viewX = x * size - left;
-    // var viewY = ((1 << z) - 1 - y) * size - top;
-
-    // var viewX = this.transform.x + size * x;
-    // var viewY = this.transform.y + size * y;
-
-    // console.warn(viewX, viewY, size);
-    // 根据瓦片zxy,以及transform, 屏幕像素比，确实视口的大小
     this.painter.viewport(z, x, y, this.transform, this.pixelRatio);
     // 绘制瓦片
-    this.painter.draw(tile, z);
-
-    //     // Go through the stylesheet, for each layer, render all loaded tiles.
-    //     for (var i = 0; i < style.length; i++) {
-    //         if (style[i].source in tile.layers) {
-    //             var layer = tile.layers[style[i].source];
-    //             this.painter.draw(layer);
-    //         } else {
-    //             console.warn('Tile ' + id + ' is missing layer ' + style[i].source);
-    //         }
-    //     }
+    this.painter.draw(tile, this.style.zoomed_layers);
   }
   zoom(scale: number, anchorX: number, anchorY: number) {
     anchorY = this.height - anchorY - 1;
@@ -511,6 +496,12 @@ class Map {
     var posY = anchorY - this.transform.y;
 
     var oldScale = this.transform.scale;
+
+
+    var real = this.transform.scale * scale;
+    var min = Math.max(0.5, Math.max(1 << this.minZoom, real));
+    this.transform.scale = Math.min(1 << this.maxZoom, min);
+
     this.transform.scale = Math.min(
       1 << this.maxZoom,
       Math.max(1 << this.minZoom, this.transform.scale * scale)
@@ -519,6 +510,9 @@ class Map {
     scale = this.transform.scale / oldScale;
     this.transform.x -= posX * scale - posX;
     this.transform.y -= posY * scale - posY;
+
+    this.updateStyle();
+    this.updateHash();
   }
   rerender() {
     if (!this.dirty) {
@@ -531,10 +525,22 @@ class Map {
       )(this.render);
     }
   }
-}
+  updateStyle() {
+    var zoom = Math.log(this.transform.scale) / Math.log(2);
+    this.style.zoomed_layers = zoom_style(this.style.layers, this.style.constants, zoom);
+  }
+  updateHash() {
+    if (this._updateHashTimeout) {
+        clearTimeout(this._updateHashTimeout);
+    }
 
-function z_order(a: number, b: number) {
-  return (a % 32) - (b % 32);
+    var map = this;
+    this._updateHashTimeout = setTimeout(function() {
+        var hash = '#' + map.transform.scale + '/' + map.transform.x + '/' + map.transform.y;
+        location.replace(hash);
+        map._updateHashTimeout = null;
+    }, 100);
+};
 }
 
 export default Map;
