@@ -5,9 +5,12 @@ import Tile from "./libs/tile";
 import MRUCache from "./utils/MRUCache";
 import { clamp } from "./utils/common";
 import { _ } from "./utils/underscore";
-import { parse_style,zoom_style, z_order } from './libs/parse'
+import { parse_style,zoom_style, z_order } from './libs/style'
+import Transform from './libs/transform'
 
 interface IMapConfig {
+  canvas: HTMLCanvasElement,
+  labels: HTMLElement
   urls: string[]; // 可用的瓦片请请求地址池
   zooms: number[]; // 缩放的等级列表
   minZoom: number; // 最小等级
@@ -15,12 +18,9 @@ interface IMapConfig {
   minTileZoom: number; // 瓦片的最小等级
   maxTileZoom: number; // 瓦片的最大等级
   style:Record<string,any>
-}
-
-export interface ITransform {
-  x: number; // 屏幕坐标x
-  y: number; // 屏幕坐标Y
-  scale: number; // 缩放比例
+  zoom:number
+  lat:number
+  lon:number
 }
 
 interface IExtent {
@@ -39,6 +39,7 @@ class Map {
     dom: HTMLCanvasElement;
     scaled: boolean;
   };
+  labels:HTMLElement;
   cache: MRUCache;
   urls: string[];
   zooms: number[];
@@ -49,23 +50,25 @@ class Map {
   pixelRatio: number;
   width: number;
   height: number;
-  transform: ITransform;
+  transform: Transform;
   painter: GLPainter;
   interaction: Interaction;
   dirty: boolean;
   style:Record<string,any>
   size:number 
+  lastHash:string
   private _updateHashTimeout:NodeJS.Timeout | null
 
-  constructor(canvas: HTMLCanvasElement, config: IMapConfig) {
+  constructor(config: IMapConfig) {
     // 初始化瓦片数据集
     this.tiles = Object.create(null);
 
     // 初始化画布
     this.canvas = {
-      dom: canvas,
+      dom: config.canvas,
       scaled: false,
     };
+    this.labels = config.labels;
 
     // 初始化瓦片缓存
     // TODO: Rework MRU cache handling (flickering!)
@@ -93,7 +96,10 @@ class Map {
     // 初始化画布
     this.setupCanvas();
     // 初始化transform
-    this.setupTransform();
+
+    this.transform = new Transform(512);
+    this.setupTransform(config);
+
     // 初始化WebGL上下文，绘制类
     this.setupPainter();
     // 初始化相关事件，移动，缩放等
@@ -102,6 +108,8 @@ class Map {
     this.dirty = false;
     this.updateStyle();
     this.updateTiles();
+    this.updateHash();
+    this.rerender();
   }
 
   url(id: number) {
@@ -140,29 +148,22 @@ class Map {
     if (DEBUG) console.timeEnd("Map#setupCanvas");
   }
 
-  setupTransform() {
-    if (DEBUG) console.time("Map#setupTransform");
+  setupTransform(pos:IMapConfig) {
+    this.transform.width = this.canvas.dom.offsetWidth;
+    this.transform.height = this.canvas.dom.offsetHeight;
 
-    // 地图大小
-    this.width = this.canvas.dom.offsetWidth;
-    this.height = this.canvas.dom.offsetHeight;
-    
-    const scale = 2;
-    // 初始化
-    this.transform = {
-        x: this.width / 2 - scale * this.size / 2,
-        y: this.height / 2 - scale * this.size / 2,
-        scale: scale
-    };
-  
-    if (location.hash) {
-      var match = location.hash.match(/^#(\d+(?:\.\d+))\/(-?\d+(?:\.\d+))\/(-?\d+(?:\.\d+))$/);
-      if (match) {
-          this.transform.scale = +match[1];
-          this.transform.x = +match[2];
-          this.transform.y = +match[3];
-      }
-  }
+    if (!this.parseHash()) {
+        this.setPosition(pos.zoom, pos.lat, pos.lon);
+    }
+
+    window.addEventListener("hashchange", (ev) =>{
+        if (location.hash !== this.lastHash) {
+            this.parseHash();
+            this.updateStyle();
+            this.updateTiles();
+            this.rerender();
+        }
+    }, false);
   }
 
   setupPainter() {
@@ -179,7 +180,7 @@ class Map {
   }
   setupEvents() {
     // 实例化事件对象
-    this.interaction = new Interaction(this.canvas.dom)
+    this.interaction = new Interaction(this.labels)
       .on("pan", (x: number, y: number) => {
         this.translate(x, y);
         this.updateTiles();
@@ -210,7 +211,7 @@ class Map {
     // if (DEBUG) console.warn('Map#updateTiles');
     
     // 当前的地图等级
-    let zoom = Math.log(this.transform.scale) / Math.log(2);
+    let zoom = this.transform.zoom;
      // TODO: Increase maxcoveringzoom. To do this, we have to clip the gl viewport
     // to the actual visible canvas and shift the projection matrix
     // 存在的最大等级
@@ -221,7 +222,7 @@ class Map {
     // if (DEBUG) console.log('updateTiles=>', zoom,this.transform.scale);
 
     // 当前屏幕需要获得的所有瓦片Id[]
-    let required = this.getCoveringTiles(this.transform.scale);
+    let required = this.getCoveringTiles();
     if (DEBUG) console.log('required=>', zoom, required);
 
      let missing:number[] = [];
@@ -346,24 +347,18 @@ class Map {
     return null;
   }
   // 获取当前等级下的瓦片
-  getCoveringTiles(scale: number) {
-    // 单个瓦片的大小
-    var size =this.size;
-    // 瓦片可绘制的范围
-    var extent = this.getPixelExtent(this.transform);
-    // if (DEBUG) console.log('Map#extent',extent);
-
-    // 地图的缩放等级
-    var z = this.coveringZoomLevelWithScale(scale);
+  getCoveringTiles() {
+    var extent = this.getPixelExtent();
+    var z = this.coveringZoomLevel();
     if (DEBUG) console.log('Map#z', z);
     // 该等级下的纬度
     var dim = 1 << z;
     // 横向 与纵向 的瓦片 范围
     var bounds = {
-      minX: clamp(Math.floor(extent.left / size), 0, dim - 1),
-      minY: clamp(Math.floor(extent.bottom / size), 0, dim - 1),
-      maxX: clamp(Math.floor(extent.right / size), 0, dim - 1),
-      maxY: clamp(Math.floor(extent.top / size), 0, dim - 1),
+      minX: clamp(Math.floor(extent.left / this.transform.size), 0, dim - 1),
+        minY: clamp(Math.floor(extent.bottom / this.transform.size), 0, dim - 1),
+        maxX: clamp(Math.floor((extent.right) / this.transform.size), 0, dim - 1),
+        maxY: clamp(Math.floor((extent.top) / this.transform.size), 0, dim - 1)
     };
     // if (DEBUG) console.log('Map#bounds', bounds);
 
@@ -377,24 +372,19 @@ class Map {
 
     return tiles;
   }
-  getPixelExtent(transform: ITransform): IExtent {
-    // Convert the pixel values to the next higher zoom level's tiles.
-    var zoom = this.coveringZoomLevelWithScale(transform.scale);
-    var factor = (1 << zoom) / transform.scale;
+  getPixelExtent(): IExtent {
+    var zoom = this.coveringZoomLevel();
+    var factor = Math.pow(2, zoom) / this.transform.scale;
     return {
-      left: -transform.x * factor,                     // 瓦片绘制区域左边的位置，最左边是0， 向右一定 -偏移量   向左移动  +偏移量
-      top: -(transform.y - this.height) * factor,      // 瓦片绘制区域上面的位置，最下面是屏幕高度， 向上移动 +偏移量   向下移动  -偏移量
-      right: -(transform.x - this.width) * factor,     // 瓦片绘制区域右面的位置，最右面是屏幕宽度， 向右移动 -偏移量   向左移动  +偏移量
-      bottom: -transform.y * factor,                   // 瓦片绘制区域下面的位置，最下面是0， 向上移动 -偏移量   向下移动  +偏移量
+        left: -this.transform.x * factor,
+        top: -(this.transform.y - this.transform.height) * factor,
+        right: -(this.transform.x - this.transform.width) * factor,
+        bottom: -this.transform.y * factor
     };
   }
-  // scale 计算 zoom
-  coveringZoomLevelWithScale(scale: number) {
-    var zoom = Math.floor(Math.log(scale) / Math.log(2));
-    return this.coveringZoomLevel(zoom);
-  }
   // 当前可用的zoom等级
-  coveringZoomLevel(zoom: number) {
+  coveringZoomLevel() {
+     const zoom = this.transform.zoom;
     for (let i = this.zooms.length - 1; i >= 0; i--) {
       if (this.zooms[i] <= zoom) {
         return this.zooms[i];
@@ -485,12 +475,12 @@ class Map {
       x = pos.x,
       y = pos.y;
 
-    this.painter.viewport(z, x, y, this.transform, this.pixelRatio);
+      this.painter.viewport(z, x, y, this.transform, this.transform.size, this.pixelRatio);
     // 绘制瓦片
     this.painter.draw(tile, this.style.zoomed_layers);
   }
   zoom(scale: number, anchorX: number, anchorY: number) {
-    anchorY = this.height - anchorY - 1;
+    anchorY = this.transform.height - anchorY - 1;
 
     var posX = anchorX - this.transform.x;
     var posY = anchorY - this.transform.y;
@@ -526,21 +516,35 @@ class Map {
     }
   }
   updateStyle() {
-    var zoom = Math.log(this.transform.scale) / Math.log(2);
-    this.style.zoomed_layers = zoom_style(this.style.layers, this.style.constants, zoom);
-  }
+    this.style.zoomed_layers = zoom_style(this.style.layers, this.style.constants, this.transform.zoom);
+   }
   updateHash() {
     if (this._updateHashTimeout) {
         clearTimeout(this._updateHashTimeout);
     }
 
-    var map = this;
-    this._updateHashTimeout = setTimeout(function() {
-        var hash = '#' + map.transform.scale + '/' + map.transform.x + '/' + map.transform.y;
-        location.replace(hash);
-        map._updateHashTimeout = null;
+
+    this._updateHashTimeout = setTimeout(()=> {
+      var hash = '#' + (this.transform.z + 1).toFixed(2) +
+      '/' + this.transform.lat.toFixed(6) +
+      '/' + this.transform.lon.toFixed(6);
+  this.lastHash = hash;
+  location.replace(hash);
+  this._updateHashTimeout = null;
     }, 100);
-};
+}
+setPosition(zoom:number, lat:number, lon:number) {
+  this.transform.zoom = zoom - 1;
+  this.transform.lat = lat;
+  this.transform.lon = lon;
+}
+parseHash () {
+  var match = location.hash.match(/^#(\d+(?:\.\d+)?)\/(-?\d+(?:\.\d+)?)\/(-?\d+(?:\.\d+)?)$/);
+  if (match) {
+      this.setPosition(+match[1], +match[2], +match[3]);
+      return true;
+  }
+}
 }
 
 export default Map;

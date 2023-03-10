@@ -30,7 +30,6 @@ class Tile {
 
     var tile = this.data;
     map.style.mapping.forEach(function(mapping:any) {
-      debugger
         var layer = tile.layers[mapping.layer];
         if (layer) {
             var buckets:Record<string,any> = {}; 

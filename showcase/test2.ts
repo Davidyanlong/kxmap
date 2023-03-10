@@ -109,7 +109,9 @@ export function main(){
     canvas.style.height = '100%';
     
     map?.appendChild(canvas);
-    const globalMap = new KXMap(canvas, {
+    const globalMap = new KXMap({
+        canvas,
+        labels: document.getElementById('svg'),
         urls: ['/tiles2/{z}/{x}/{y}.vector.pbf'],
         zooms: [0, 2, 4, 6, 8, 10, 12, 14],
         zoom: 0,
