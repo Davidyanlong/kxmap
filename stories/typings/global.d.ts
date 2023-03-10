@@ -1,0 +1,2 @@
+type FREE = any;
+

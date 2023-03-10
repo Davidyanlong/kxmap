@@ -1,0 +1,24 @@
+{
+  "name": "@kxmap/utils",
+  "version": "0.0.1",
+  "description": "> TODO: description",
+  "author": "yangyl <yangyl@4dstc.com>",
+  "main": "dist/kxmap-utils.umd.js",
+  "module": "dist/kxmap-utils.es.js",
+  "types": "types/index.d.ts",
+  "umdName":"kxmap-utils",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "type": "tsc",
+    "build:module": "cross-env BUILD_TYPE=MODULE rollup -c ../../build/rollup.config.js",
+    "build:umd": "cross-env BUILD_TYPE=UMD rollup -c ../../build/rollup.config.js",
+    "build:all": "npm run type && cross-env BUILD_TYPE=ALL rollup -c  ../../build/rollup.config.js",
+    "clean": "rimraf ./dist",
+    "build":"npm-run-all -p build:unzip build:zip",
+    "build:unzip":"vite build --config ../../build/vite.config.js",
+    "build:zip":"vite build --config ../../build/vite.config.lib.js"
+  },
+  "license": "ISC"
+}

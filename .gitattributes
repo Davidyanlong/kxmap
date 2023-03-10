@@ -1,0 +1,8 @@
+ *  text=auto 
+ *.txt text
+ *.jpg  -text
+ *.png  -text
+ *.hdr  -text
+ *.png  -text
+ *.ts  eol=lf
+ *.js  eol=lf
