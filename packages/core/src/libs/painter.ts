@@ -22,6 +22,7 @@ class GLPainter {
   projection: WebGLUniformLocation;
   modelView: WebGLUniformLocation;
   backgroundBuffer: webglBufferType;
+  tileStencilBuffer:webglBufferType
   debugBuffer: webglBufferType
   constructor(gl: WebGLRenderingContext) {
     this.gl = gl;
@@ -48,7 +49,7 @@ class GLPainter {
 
     // Initialize projection matrix
     this.pMatrix = mat4.create();
-    mat4.ortho(this.pMatrix, 0, 4095, 4095, 0, 1, 10);
+    mat4.ortho(this.pMatrix, 0, this.width, this.height, 0, 0, -1);
 
     // Initialize shaders
     var fragmentShader = this.getShader("fragment", fragment) as WebGLShader;
@@ -80,7 +81,7 @@ class GLPainter {
     gl.uniformMatrix4fv(this.projection, false, this.pMatrix);
     gl.uniformMatrix4fv(this.modelView, false, this.mvMatrix);
 
-    var background = [ -32768, -32768, 32766, -32768, -32768, 32766, 32766, 32766];
+    var background = [ -32768, -32768, 32766, -32768, -32768, 32766, 32766, 32766 ];
     var backgroundArray = new Int16Array(background);
     const itemSize = 2
     this.backgroundBuffer = {
@@ -102,6 +103,16 @@ class GLPainter {
     gl.bindBuffer(gl.ARRAY_BUFFER, this.debugBuffer.data);
     gl.bufferData(gl.ARRAY_BUFFER, debugArray, gl.STATIC_DRAW);
 
+      // tile stencil buffer
+      var tileStencilBuffer =  gl.createBuffer() as WebGLBuffer;
+      this.tileStencilBuffer ={
+        data:tileStencilBuffer,
+        itemSize:2,
+        numItems:4
+      }
+  
+  
+      gl.enable(gl.DEPTH_TEST);
 
     if (DEBUG) console.timeEnd('GLPainter#setup');
   }
@@ -134,49 +145,56 @@ class GLPainter {
     const gl = this.gl;
     // 清屏颜色
     gl.clearColor(0.9, 0.9, 0.9, 1);
+    gl.clearDepth(1);
     // 清除颜色与深度
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    gl.enable(gl.DEPTH_TEST);
   }
   viewport(
     z: number,
     x: number,
     y: number,
     transform: Transform,
-    size:number,
+    tileSize:number,
     pixelRatio: number
   ) {
-    const dim = 1 << z;
+    var gl = this.gl;
+    var tileExtent = 4096;
 
-    // Flip y coordinate; WebGL origin is bottom left.
-    y = dim - y - 1;
+    // Initialize model-view matrix that converts from the tile coordinates
+    // to screen coordinates.
+    var tileScale = Math.pow(2, z);
+    var scale = transform.scale * tileSize / tileScale;
+    var viewMatrix = mat4.create();
+    mat4.identity(viewMatrix);
+    mat4.translate(viewMatrix, viewMatrix,[ transform.x + scale * x, transform.y + scale * y, 0 ]);
+    mat4.scale(viewMatrix, viewMatrix, [ scale / tileExtent, scale / tileExtent, 1 ]);
+    gl.uniformMatrix4fv(this.modelView, false, viewMatrix);
 
-    // 当前缩放比例下，瓦片的相对大小 size >=256 && size < 512
-    var scale = transform.scale * size / dim;
+    // console.warn(viewMatrix);
 
-    // Calculate viewport
-    // viewport X
-    var vpX = (transform.x + scale * x) * pixelRatio;
-    // viewport Y
-    var vpY = (transform.y + scale * y) * pixelRatio;
-    // viewport width
-    var vpWidth = scale * pixelRatio;
-    // viewport height
-    var vpHeight = scale * pixelRatio;
-    // viewport X 小数部分
-    var vpDXBegin = vpX - Math.floor(vpX);
-    // viewport Y 小数部分
-    var vpDYBegin = vpY - Math.floor(vpY);
-    // 向上取整后 X 补差小数部分
-    var vpDXEnd = Math.ceil(vpWidth + vpDXBegin) - (vpWidth + vpDXBegin);
-    // 向上取整后 Y 补差小数部分
-    var vpDYEnd = Math.ceil(vpHeight + vpDYBegin) - (vpHeight + vpDYBegin);
+    // Update tile stencil buffer
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.tileStencilBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Int16Array([ 0, 0, tileExtent, 0, 0, tileExtent, tileExtent, tileExtent ]), gl.STREAM_DRAW);
 
-    this.gl.viewport(
-      Math.round(vpX - vpDXBegin),
-      Math.round(vpY - vpDYBegin),
-      Math.round(vpWidth + vpDXBegin + vpDXEnd),
-      Math.round(vpHeight + vpDYBegin + vpDYEnd)
-    );
+    // draw depth mask
+    gl.depthFunc(gl.ALWAYS);
+    gl.depthMask(true);
+    gl.clear(gl.DEPTH_BUFFER_BIT);
+    gl.colorMask(false, false, false, false);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.tileStencilBuffer);
+    gl.vertexAttribPointer(this.position, 2, gl.SHORT, false, 0, 0);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, this.tileStencilBuffer.numItems);
+
+
+    mat4.translate(viewMatrix, viewMatrix,[ 0, 0, 1 ]);
+    gl.uniformMatrix4fv(this.modelView, false, viewMatrix);
+
+
+    // draw actual tile
+    gl.depthFunc(gl.GREATER);
+    gl.depthMask(false);
+    gl.colorMask(true, true, true, true);
   }
 
   draw(tile: Tile, style: any[]) {
@@ -232,12 +250,12 @@ class GLPainter {
       }
   });
 
-     // debug
-    //  gl.bindBuffer(gl.ARRAY_BUFFER, this.debugBuffer.data);
-    //  gl.vertexAttribPointer(this.position, this.debugBuffer.itemSize, gl.SHORT, false, 0, 0);
-    //  gl.uniform4f(this.color, 1, 0, 1, 1);
-    //  gl.lineWidth(4);
-    //  gl.drawArrays(gl.LINE_STRIP, 0, this.debugBuffer.numItems);
+     //debug
+     gl.bindBuffer(gl.ARRAY_BUFFER, this.debugBuffer.data);
+     gl.vertexAttribPointer(this.position, this.debugBuffer.itemSize, gl.SHORT, false, 0, 0);
+     gl.uniform4f(this.color, 1, 0, 1, 1);
+     gl.lineWidth(4);
+     gl.drawArrays(gl.LINE_STRIP, 0, this.debugBuffer.numItems);
 
   }
 }

@@ -56,16 +56,20 @@ class Map {
   interaction: Interaction;
   dirty: boolean;
   style: Record<string, any>;
-  size: number;
+  tileSize: number;
   lastHash: string;
   container: HTMLDivElement;
   previousScale:number
+  minScale:number
+  maxScale:number
   private _updateHashTimeout: NodeJS.Timeout | null;
 
   constructor(config: IMapConfig) {
+    this.tileSize = 512;
+
     // 初始化瓦片数据集
     this.tiles = Object.create(null);
-    this.transform = new Transform(512);
+    this.transform = new Transform(this.tileSize);
 
     this.setupContainer(config.container);
     this.setupPosition(config);
@@ -79,8 +83,10 @@ class Map {
 
     // 初始化瓦片的等级列表
     this.zooms = config.zooms || [0];
-    this.minZoom = config.minZoom || -1;
+    this.minZoom = config.minZoom || 0;
     this.maxZoom = config.maxZoom || 18;
+    this.minScale = Math.pow(2, this.minZoom);
+    this.maxScale = Math.pow(2, this.maxZoom);
     this.minTileZoom = _.first(this.zooms) as number;
     this.maxTileZoom = _.last(this.zooms) as number;
 
@@ -211,7 +217,7 @@ class Map {
   // 平移
   translate(x: number, y: number) {
     this.transform.x += x;
-    this.transform.y -= y;
+    this.transform.y += y;
     console.log('translate',this.transform.x ,this.transform.y)
     this.updateHash();
   }
@@ -374,7 +380,7 @@ class Map {
     // 根据横向与纵向的范围，获取瓦片ID
     for (var x = bounds.minX; x <= bounds.maxX; x++) {
       for (var y = bounds.minY; y <= bounds.maxY; y++) {
-        tiles.push(Tile.toID(z, x, dim - y - 1));
+        tiles.push(Tile.toID(z, x, y));
       }
     }
 
@@ -477,26 +483,28 @@ class Map {
     // 绘制瓦片
     this.painter.draw(tile, this.style.zoomed_layers);
   }
-  zoom(scale: number, anchorX: number, anchorY: number) {
-    anchorY = this.transform.height - anchorY - 1;
-
-    let posX = anchorX - this.transform.x;
-    let posY = anchorY - this.transform.y;
+  zoom(scale: number, x: number, y: number) {
+    
+    var posX = x - this.transform.x;
+    var posY = y - this.transform.y;
 
     let oldScale = this.transform.scale;
 
-    let real = this.transform.scale * scale;
-    let min = Math.max(0.5, Math.max(1 << this.minZoom, real));
-    this.transform.scale = Math.min(1 << this.maxZoom, min);
+    this.transform.scale = Math.min(this.maxScale, Math.max(0.5, this.transform.scale * scale));
 
-    this.transform.scale = Math.min(1 << this.maxZoom, Math.max(1 << this.minZoom, this.transform.scale * scale));
+    if (this.transform.scale !== oldScale) {
+        scale = this.transform.scale / oldScale;
+        this.transform.x -= posX * scale - posX;
+        this.transform.y -= posY * scale - posY;
 
-    scale = this.transform.scale / oldScale;
-    this.transform.x -= posX * scale - posX;
-    this.transform.y -= posY * scale - posY;
-
-    this.updateStyle();
-    this.updateHash();
+        // Only enable zooming mode when using a mode that is more granular than
+        // the coarse scroll wheel intervals.
+        // Wait 6 frames (== 100ms) until we disable zoom mode again
+        // this.animating = 15;
+        //zooming = (scale != oldScale && !wheel) ? 6 : 0;
+        this.updateStyle();
+        this.updateHash();
+    }
   }
   rerender() {
     if (!this.dirty) {

@@ -12,9 +12,10 @@ class Transform {
   y: number;
   constructor(size: number) {
     this._size = size; // constant
-    this._width = 0;
-    this._height = 0;
-    this._scale = 2;
+
+    this.width = 0;
+    this.height = 0;
+    this.scale = 1;
 
     this.x = 0;
     this.y = 0;
@@ -80,6 +81,7 @@ class Transform {
     var f = Math.min(Math.max(Math.sin((Math.PI / 180) * -lat), -0.9999), 0.9999);
     this.y = -(this._zc - 0.5 * Math.log((1 + f) / (1 - f)) * this._Cc) + this._hH;
   }
+  
 }
 
 export default Transform
