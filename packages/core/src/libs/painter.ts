@@ -228,16 +228,18 @@ class GLPainter {
     gl.bindBuffer(gl.ARRAY_BUFFER, tile.geometry.vertexBuffer.data);
     gl.vertexAttribPointer(this.position, tile.geometry.vertexBuffer.itemSize, gl.SHORT, false, 0, 0);
 
-    style.forEach(function(info) {
+    style.forEach(applyStyle);
+
+    function applyStyle(info:any) {
       var layer = tile.layers[info.data];
       if (layer) {
           gl.uniform4fv(painter.color, info.color);
           if (info.type === 'fill') {
-              gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, tile.geometry.fillElementBuffer.data);
+              gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, tile.geometry.fillElementBuffer);
               gl.drawElements(gl.TRIANGLE_STRIP, layer.fillEnd - layer.fill, gl.UNSIGNED_SHORT, layer.fill * 2);
           } else {
               var width = Math.min(10, info.width || 1);
-              gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, tile.geometry.lineElementBuffer.data);
+              gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, tile.geometry.lineElementBuffer);
 
               if (width > 2) {
                   gl.uniform1f(painter.pointSize, width - 2);
@@ -248,7 +250,7 @@ class GLPainter {
               gl.drawElements(gl.LINE_STRIP, layer.lineEnd - layer.line, gl.UNSIGNED_SHORT, layer.line * 2);
           }
       }
-  });
+  }
 
      //debug
      gl.bindBuffer(gl.ARRAY_BUFFER, this.debugBuffer.data);
