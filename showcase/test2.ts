@@ -104,7 +104,7 @@ var style_json = {
 export function main(){
     const globalMap = new KXMap({
         container: document.getElementById('map'),
-        urls: ['/tiles2/{z}/{x}/{y}.vector.pbf'],
+        urls: ['/tiles/{z}/{x}/{y}.vector.pbf'],
         zooms: [0, 2, 4, 6, 8, 10, 12, 14],
         zoom: 16,
         lat: 52.521805,

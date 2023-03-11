@@ -203,18 +203,7 @@ class GLPainter {
     gl.uniform4f(this.color, 0.9098, 0.8784, 0.8471, 1);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, this.backgroundBuffer.numItems);
 
-    // // debug
-    // gl.bindBuffer(gl.ARRAY_BUFFER, this.debugBuffer.data);
-    // gl.vertexAttribPointer(
-    //   this.position,
-    //   this.backgroundBuffer.itemSize,
-    //   gl.SHORT,
-    //   false,
-    //   0,
-    //   0
-    // );
-    // gl.uniform4f(this.color, 1, 1, 0.8471, 1);
-    // gl.drawArrays(gl.TRIANGLE_STRIP, 0, this.backgroundBuffer.numItems);
+   
 
 
     // Vertex Buffer
@@ -243,7 +232,12 @@ class GLPainter {
       }
   });
 
-    
+     // debug
+    //  gl.bindBuffer(gl.ARRAY_BUFFER, this.debugBuffer.data);
+    //  gl.vertexAttribPointer(this.position, this.debugBuffer.itemSize, gl.SHORT, false, 0, 0);
+    //  gl.uniform4f(this.color, 1, 0, 1, 1);
+    //  gl.lineWidth(4);
+    //  gl.drawArrays(gl.LINE_STRIP, 0, this.debugBuffer.numItems);
 
   }
 }

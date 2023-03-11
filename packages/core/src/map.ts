@@ -59,6 +59,7 @@ class Map {
   size: number;
   lastHash: string;
   container: HTMLDivElement;
+  previousScale:number
   private _updateHashTimeout: NodeJS.Timeout | null;
 
   constructor(config: IMapConfig) {
@@ -92,8 +93,8 @@ class Map {
 
     this.dirty = false;
     this.updateStyle();
-    this.updateTiles();
-    this.rerender();
+
+    this.update();
   }
 
   url(id: number) {
@@ -150,8 +151,7 @@ class Map {
         if (location.hash !== this.lastHash) {
           this.parseHash();
           this.updateStyle();
-          this.updateTiles();
-          this.rerender();
+          this.update()
         }
       },
       false,
@@ -195,16 +195,14 @@ class Map {
     this.interaction = new Interaction(this.container)
       .on('pan', (x: number, y: number) => {
         this.translate(x, y);
-        this.updateTiles();
-        this.rerender();
+        this.update()
       })
       .on('zoom', (delta: number, x: number, y: number) => {
         // Scale by sigmoid of scroll wheel delta.
         var scale = 2 / (1 + Math.exp(-Math.abs(delta / 100) / 4));
         if (delta < 0 && scale !== 0) scale = 1 / scale;
         this.zoom(scale, x, y);
-        this.updateTiles();
-        this.rerender();
+        this.update()
       });
     // .on('click', function(x, y) {
     //     map.click(x, y);
@@ -424,9 +422,7 @@ class Map {
           // 将瓦片的相关数据转换为渲染数据
           tile!.addToMap(this);
           // 更新瓦片，这里可以判断瓦片的loaded 情况，并加入到必需的瓦片列表中
-          this.updateTiles();
-          // 执行渲染
-          this.rerender();
+         this.update()
         }
       });
     }
@@ -537,6 +533,11 @@ class Map {
       return true;
     }
   }
+  update() {
+    this.updateTiles();
+    this.rerender();
+    this.previousScale = this.transform.scale;
+};
 }
 
 export default Map;

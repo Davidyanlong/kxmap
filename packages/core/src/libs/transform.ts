@@ -59,6 +59,9 @@ class Transform {
     this._height = +height;
     this._hH = +height / 2;
   }
+  get ry() {
+    return this._height - this.y - this.world;
+  }
 
   get lon() {
     return -(this.x + this._zc - this._hW) / this._Bc;

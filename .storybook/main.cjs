@@ -38,7 +38,7 @@ module.exports = {
         },
         proxy: {
           // 字符串简写写法：http://localhost:5173/foo -> http://localhost:4567/foo
-          '/tiles2': 'http://localhost:8000',
+          '/tiles': 'http://localhost:8000',
         },
       },
       // Use the same "resolve" configuration as your app

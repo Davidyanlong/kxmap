@@ -20,6 +20,7 @@ tsconfig.tsbuildinfo
 public
 .cache
 .history
+tiles/
 
 # local env files
 .env.local
@@ -42,3 +43,5 @@ lerna-debug.log*
 *.sln
 *.sw?
 *code-workspace
+
+
