@@ -82,7 +82,7 @@ const eventFns = (pos: PointType, handlers: handleType,el:HTMLElement) => [
         var rect = el.getBoundingClientRect();
        // 调用所有的zoom 事件，每次放大500
       for (var i = 0; i < handlers.zoom.length; i++) {
-        handlers.zoom[i](500, x - rect.left, y - rect.top);
+        handlers.zoom[i](Infinity, x - rect.left, y - rect.top);
       }
     }
     ev.preventDefault();
