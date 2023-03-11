@@ -174,7 +174,7 @@ class GLPainter {
     // console.warn(viewMatrix);
 
     // Update tile stencil buffer
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.tileStencilBuffer);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.tileStencilBuffer.data);
     gl.bufferData(gl.ARRAY_BUFFER, new Int16Array([ 0, 0, tileExtent, 0, 0, tileExtent, tileExtent, tileExtent ]), gl.STREAM_DRAW);
 
     // draw depth mask
@@ -182,7 +182,7 @@ class GLPainter {
     gl.depthMask(true);
     gl.clear(gl.DEPTH_BUFFER_BIT);
     gl.colorMask(false, false, false, false);
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.tileStencilBuffer);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.tileStencilBuffer.data);
     gl.vertexAttribPointer(this.position, 2, gl.SHORT, false, 0, 0);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, this.tileStencilBuffer.numItems);
 

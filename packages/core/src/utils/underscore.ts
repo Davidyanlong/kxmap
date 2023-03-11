@@ -4,13 +4,15 @@ const ArrayProto = Array.prototype, ObjProto = Object.prototype, FuncProto = Fun
 // Create quick reference variables for speed access to core prototypes.
 const push           = ArrayProto.push,
     slice            = ArrayProto.slice,
+    nativeReduce     = ArrayProto.reduce,
     concat           = ArrayProto.concat,
     nativeFilter     = ArrayProto.filter,
     nativeForEach    = ArrayProto.forEach,
     nativeIndexOf    = ArrayProto.indexOf,
     nativeSome       = ArrayProto.some;
 
-const hasOwnProperty   = ObjProto.hasOwnProperty;
+const hasOwnProperty   = ObjProto.hasOwnProperty,
+    nativeBind         = FuncProto.bind;
 export function first<T>(arr:T[]){
     if (arr == null) return void 0;
     return arr[0];
@@ -78,6 +80,48 @@ export function identity<T>(value:T){
     return value;
 }
 
+export function bind<K>(func:Function, context?:K){
+  if (func.bind === nativeBind && nativeBind) return nativeBind.apply(func, slice.call(arguments, 1));
+    var args = slice.call(arguments, 2);
+    return function() {
+      return func.apply(context, args.concat(slice.call(arguments)));
+    };
+}
+
+
+var reduceError = 'Reduce of empty array with no initial value';
+export function reduce<T,K>(obj:T[], iterator:(previousValue: T, currentValue: T, currentIndex: number, array: T[])=>T, memo:T, context?:K){
+  var initial = arguments.length > 2;
+  if (obj == null) obj = [];
+  if (nativeReduce && obj.reduce === nativeReduce) {
+    if (context) iterator = bind(iterator, context);
+    return initial ? obj.reduce(iterator, memo) : obj.reduce(iterator);
+  }
+  each(obj, function(value, index, list) {
+    if (!initial) {
+      memo = value;
+      initial = true;
+    } else {
+      memo = iterator.call(context, memo, value, index as number, list);
+    }
+  });
+  if (!initial) throw new TypeError(reduceError);
+  return memo;
+}
+
+export function size<T>(obj:T[]){
+  if (obj == null) return 0;
+  return (obj.length === +obj.length) ? obj.length : keys(obj).length;
+}
+
+export function keys<T>(obj:T[]) {
+  if (obj !== Object(obj)) throw new TypeError('Invalid object');
+  var keys = [];
+  for (var key in obj) if (_.has(obj, key)) keys[keys.length] = key;
+  return keys;
+};
+
+
 export const _ = {
     first,
     last,
@@ -86,5 +130,9 @@ export const _ = {
     has,
     each,
     contains,
-    any
+    any,
+    reduce,
+    bind,
+    size,
+    keys,
 }

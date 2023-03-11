@@ -1,8 +1,27 @@
 import type Map from '../map';
-import { loadBuffer } from '../utils/common';
 import Geometry from './geometry';
-import Protobuf from './protobuf';
 import { VectorTile } from './vectortile';
+import _ from 'lodash'
+//@ts-ignore
+import VectorWorker from '../workers/vectortileloader?worker'
+
+const tileLoader = new VectorWorker();
+const callbacks:Record<string,any> = {};
+
+tileLoader.addEventListener('message', function(e:MessageEvent) {
+  var error;
+  if (!e.data.err) {
+      error = null;
+  }
+  else if (typeof e.data.err == 'Error') {
+      error = e.data.err;
+  }
+  else {
+      error = new Error(e.data.err);
+  }
+  callbacks[e.data.id](error, e.data.data);
+  delete callbacks[e.data.id];
+}, false);
 
 class Tile {
   loaded: boolean = false;
@@ -10,15 +29,18 @@ class Tile {
   geometry: Geometry;
   layers: any;
   constructor(url: string, callback: (...args: any[]) => void) {
-    loadBuffer(url, (err: any, data: number[]) => {
-      if (!err) {
-        this.load(data);
-      }
-      callback(err);
-    });
+    var tile = this, id = _.uniqueId();
+    tile.loaded = false;
+    callbacks[id] = function(err, data) {
+        if (!err) {
+            tile.load(data);
+        }
+        callback(err);
+    };
+    tileLoader.postMessage({ url: url, id: id });
   }
-  load(buffer: number[]) {
-    this.data = new VectorTile(new Protobuf(buffer));
+  load(data:any) {
+    this.data = new VectorTile(data);
     this.loaded = true;
   }
   // 将瓦片添加的地图中

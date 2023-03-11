@@ -188,7 +188,7 @@ class Map {
 
   setupPainter() {
     // WebGL 上下文
-    const gl = this.canvas.dom.getContext('webgl', { antialias: true, alpha: false });
+    const gl = this.canvas.dom.getContext('webgl', { antialias: true, alpha: false,stencil: false });
     if (!gl) {
       alert('Failed to initialize WebGL');
       return;
@@ -456,7 +456,6 @@ class Map {
   render = () => {
     // if (DEBUG) console.time('Map#render');
 
-    this.dirty = false;
     // 清屏
     this.painter.clear();
 
@@ -473,6 +472,8 @@ class Map {
         this.renderTile(tile, id);
       }
     }
+
+    this.dirty = false;
   };
   renderTile(tile: Tile, id: number, style?: any) {
     // 通过Tile ID 计算 z y x 值
