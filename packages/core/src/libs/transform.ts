@@ -13,8 +13,10 @@ class Transform {
   constructor(size: number) {
     this._size = size; // constant
 
-    this.width = 0;
-    this.height = 0;
+    // @ts-ignore
+    this.width = null;
+    // @ts-ignore
+    this.height = null;
     this.scale = 1;
 
     this.x = 0;

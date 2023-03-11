@@ -11,8 +11,6 @@ type shaderType = "fragment" | "vertex";
 
 class GLPainter {
   gl: WebGLRenderingContext;
-  width: number;
-  height: number;
   mvMatrix: mat4;
   pMatrix: mat4;
   shader: WebGLProgram;
@@ -26,8 +24,6 @@ class GLPainter {
   debugBuffer: webglBufferType
   constructor(gl: WebGLRenderingContext) {
     this.gl = gl;
-    this.width = (this.gl.canvas as HTMLCanvasElement).offsetWidth;
-    this.height = (this.gl.canvas as HTMLCanvasElement).offsetHeight;
     this.setup();
   }
 
@@ -41,15 +37,6 @@ class GLPainter {
     gl.clearColor(0, 0, 0, 0);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     gl.enable(gl.BLEND);
-
-    // Initialize model view matrix
-    this.mvMatrix = mat4.create();
-    mat4.identity(this.mvMatrix);
-    mat4.translate(this.mvMatrix, this.mvMatrix, [0, 0, -1]);
-
-    // Initialize projection matrix
-    this.pMatrix = mat4.create();
-    mat4.ortho(this.pMatrix, 0, this.width, this.height, 0, 0, -1);
 
     // Initialize shaders
     var fragmentShader = this.getShader("fragment", fragment) as WebGLShader;
@@ -78,8 +65,6 @@ class GLPainter {
     this.projection = gl.getUniformLocation(shader,"uPMatrix") as WebGLUniformLocation;
     this.modelView = gl.getUniformLocation(shader,"uMVMatrix") as WebGLUniformLocation;
 
-    gl.uniformMatrix4fv(this.projection, false, this.pMatrix);
-    gl.uniformMatrix4fv(this.modelView, false, this.mvMatrix);
 
     var background = [ -32768, -32768, 32766, -32768, -32768, 32766, 32766, 32766 ];
     var backgroundArray = new Int16Array(background);
@@ -260,6 +245,14 @@ class GLPainter {
      gl.drawArrays(gl.LINE_STRIP, 0, this.debugBuffer.numItems);
 
   }
+  resize(width:number, height:number) {
+    var gl = this.gl;
+    // Initialize projection matrix
+    var pMatrix = mat4.create();
+    mat4.ortho(pMatrix, 0, width, height, 0, 0, -1);
+    gl.uniformMatrix4fv(this.projection, false, pMatrix);
+    gl.viewport(0, 0, width, height);
+};
 }
 
 export default GLPainter;

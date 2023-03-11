@@ -4,6 +4,7 @@ type handleType = {
   click?: ((x: number, y: number) => void)[];
   pan?: ((x: number, y: number) => void)[];
   zoom?: ((delta: number, x: number, y: number) => void)[];
+  resize:(()=>void)[]
 };
 type PointType = { x: number; y: number } | null;
 // 默认事件
@@ -19,7 +20,7 @@ const evnetNames = [
   // 4
   /Firefox/i.test(navigator.userAgent) ? "DOMMouseScroll" : "mousewheel",
   // 5
-  "dblclick",
+  "dblclick", 
 ];
 // 默认事件函数
 const eventFns = (pos: PointType, handlers: handleType,el:HTMLElement) => [
@@ -109,6 +110,14 @@ class Interaction {
       ) => any;
       el.addEventListener(eventName, eventFn, false);
     }
+
+    window.addEventListener('resize',() =>{
+      if (handlers.resize) {
+          for (var i = 0; i < handlers.resize.length; i++) {
+              handlers.resize[i]();
+          }
+      }
+  },false)
   }
   on(ev: keyof handleType, fn: (...args: any[]) => void) {
     if (!this.handlers[ev]) {

@@ -59,9 +59,9 @@ class Map {
   tileSize: number;
   lastHash: string;
   container: HTMLDivElement;
-  previousScale:number
-  minScale:number
-  maxScale:number
+  previousScale: number;
+  minScale: number;
+  maxScale: number;
   private _updateHashTimeout: NodeJS.Timeout | null;
 
   constructor(config: IMapConfig) {
@@ -92,7 +92,6 @@ class Map {
 
     this.setupStyle(config.style);
 
-
     this.setupStyle(config.style);
     this.setupPainter();
     this.setupEvents();
@@ -100,6 +99,7 @@ class Map {
     this.dirty = false;
     this.updateStyle();
 
+    this.resize();
     this.update();
   }
 
@@ -130,10 +130,6 @@ class Map {
 
     // Setup WebGL canvas
     var canvas = document.createElement('canvas');
-    canvas.width = rect.width * this.pixelRatio;
-    canvas.height = rect.height * this.pixelRatio;
-    canvas.style.width = rect.width + 'px';
-    canvas.style.height = rect.height + 'px';
     canvas.style.position = 'absolute';
     container.appendChild(canvas);
     this.canvas = {
@@ -157,7 +153,7 @@ class Map {
         if (location.hash !== this.lastHash) {
           this.parseHash();
           this.updateStyle();
-          this.update()
+          this.update();
         }
       },
       false,
@@ -188,7 +184,7 @@ class Map {
 
   setupPainter() {
     // WebGL 上下文
-    const gl = this.canvas.dom.getContext('webgl', { antialias: true, alpha: false,stencil: false });
+    const gl = this.canvas.dom.getContext('webgl', { antialias: true, alpha: false, stencil: false });
     if (!gl) {
       alert('Failed to initialize WebGL');
       return;
@@ -199,16 +195,20 @@ class Map {
   setupEvents() {
     // 实例化事件对象
     this.interaction = new Interaction(this.container)
+      .on('resize', () => {
+        this.resize();
+        this.update();
+      })
       .on('pan', (x: number, y: number) => {
         this.translate(x, y);
-        this.update()
+        this.update();
       })
       .on('zoom', (delta: number, x: number, y: number) => {
         // Scale by sigmoid of scroll wheel delta.
         var scale = 2 / (1 + Math.exp(-Math.abs(delta / 100) / 4));
         if (delta < 0 && scale !== 0) scale = 1 / scale;
         this.zoom(scale, x, y);
-        this.update()
+        this.update();
       });
     // .on('click', function(x, y) {
     //     map.click(x, y);
@@ -218,7 +218,7 @@ class Map {
   translate(x: number, y: number) {
     this.transform.x += x;
     this.transform.y += y;
-    console.log('translate',this.transform.x ,this.transform.y)
+    console.log('translate', this.transform.x, this.transform.y);
     this.updateHash();
   }
   // 更新瓦片
@@ -336,7 +336,7 @@ class Map {
     // 对比需要请求的瓦片与已经存在的瓦片，哪些是不需要的
     let remove = _.difference(existing, required);
     // 移除不需要的瓦片
-    _.each(remove,  (id) =>{
+    _.each(remove, (id) => {
       // 根据 Tile  Id 移除瓦片
       this.removeTile(id);
     });
@@ -428,7 +428,7 @@ class Map {
           // 将瓦片的相关数据转换为渲染数据
           tile!.addToMap(this);
           // 更新瓦片，这里可以判断瓦片的loaded 情况，并加入到必需的瓦片列表中
-         this.update()
+          this.update();
         }
       });
     }
@@ -478,14 +478,15 @@ class Map {
   renderTile(tile: Tile, id: number, style?: any) {
     // 通过Tile ID 计算 z y x 值
     var pos = Tile.fromID(id);
-    var z = pos.z, x = pos.x, y = pos.y;
+    var z = pos.z,
+      x = pos.x,
+      y = pos.y;
 
     this.painter.viewport(z, x, y, this.transform, this.transform.size, this.pixelRatio);
     // 绘制瓦片
     this.painter.draw(tile, this.style.zoomed_layers);
   }
   zoom(scale: number, x: number, y: number) {
-    
     var posX = x - this.transform.x;
     var posY = y - this.transform.y;
 
@@ -494,17 +495,17 @@ class Map {
     this.transform.scale = Math.min(this.maxScale, Math.max(0.5, this.transform.scale * scale));
 
     if (this.transform.scale !== oldScale) {
-        scale = this.transform.scale / oldScale;
-        this.transform.x -= posX * scale - posX;
-        this.transform.y -= posY * scale - posY;
+      scale = this.transform.scale / oldScale;
+      this.transform.x -= posX * scale - posX;
+      this.transform.y -= posY * scale - posY;
 
-        // Only enable zooming mode when using a mode that is more granular than
-        // the coarse scroll wheel intervals.
-        // Wait 6 frames (== 100ms) until we disable zoom mode again
-        // this.animating = 15;
-        //zooming = (scale != oldScale && !wheel) ? 6 : 0;
-        this.updateStyle();
-        this.updateHash();
+      // Only enable zooming mode when using a mode that is more granular than
+      // the coarse scroll wheel intervals.
+      // Wait 6 frames (== 100ms) until we disable zoom mode again
+      // this.animating = 15;
+      //zooming = (scale != oldScale && !wheel) ? 6 : 0;
+      this.updateStyle();
+      this.updateHash();
     }
   }
   rerender() {
@@ -546,7 +547,33 @@ class Map {
     this.updateTiles();
     this.rerender();
     this.previousScale = this.transform.scale;
-};
+  }
+  resize() {
+    this.pixelRatio = window.devicePixelRatio || 1;
+
+    var width = this.container.offsetWidth;
+    var height = this.container.offsetHeight;
+
+    // Request the required canvas size taking the pixelratio into account.
+    this.canvas.dom.width = this.pixelRatio * width;
+    this.canvas.dom.height = this.pixelRatio * height;
+
+    // Maintain the same canvas size, potentially downscaling it for HiDPI displays
+    this.canvas.dom.style.width = width + 'px';
+    this.canvas.dom.style.height = height + 'px';
+
+    // Move the x/y transform so that the center of the map stays the same when
+    // resizing the viewport.
+    if (this.transform.width !== null && this.transform.height !== null) {
+      this.transform.x += (width - this.transform.width) / 2;
+      this.transform.y += (height - this.transform.height) / 2;
+    }
+
+    this.transform.width = width;
+    this.transform.height = height;
+
+    this.painter.resize(width, height);
+  }
 }
 
 export default Map;
