@@ -34,9 +34,9 @@ const eventFns = (pos: PointType, handlers: handleType,el:HTMLElement) => [
     if (handlers.click) {
       var x = ev.pageX,
       y = ev.pageY;
-      var rect = el.getBoundingClientRect();
+      var left = el.offsetLeft, top = el.offsetTop;
       for (var i = 0; i < handlers.click.length; i++) {
-          handlers.click[i](x - rect.left, y - rect.left);
+          handlers.click[i](x - left, y - left);
       }
   }
   },
@@ -57,7 +57,7 @@ const eventFns = (pos: PointType, handlers: handleType,el:HTMLElement) => [
       pos = { x: ev.pageX, y: ev.pageY };
   }
   },
-  // 4 mousewheel
+  // 4 mousewheel zoom
   (ev: Event) => {
     
     // 定义了zoom 事件
@@ -66,9 +66,9 @@ const eventFns = (pos: PointType, handlers: handleType,el:HTMLElement) => [
       y = (ev as MouseEvent).pageY;
       var delta =
       (ev as WheelEvent).wheelDeltaY || (ev as WheelEvent).detail * -120;
-      var rect = el.getBoundingClientRect();
+      const left = el.offsetLeft, top = el.offsetTop;
       for (var i = 0; i < handlers.zoom.length; i++) {
-          handlers.zoom[i](delta, x - rect.left, y - rect.top);
+          handlers.zoom[i](delta, x - left, y - top);
       }
   }
     ev.preventDefault();
