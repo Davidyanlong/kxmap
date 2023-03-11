@@ -1,14 +1,13 @@
-import { ITransform } from "../map";
 import fragment from "../shaders/fragment";
 import vertex from "../shaders/vertex";
 import { DEBUG } from "./constant";
 import type Tile from "./tile";
 import { mat4 } from "gl-matrix";
 import { webglBufferType } from './geometry'
+import type Transform from "./transform";
 
 type shaderType = "fragment" | "vertex";
 
-const worldSize = 256;
 
 class GLPainter {
   gl: WebGLRenderingContext;
@@ -73,41 +72,32 @@ class GLPainter {
     this.position = gl.getAttribLocation(shader, "a_position");
     gl.enableVertexAttribArray(this.position);
 
-    this.color = gl.getUniformLocation(
-      shader,
-      "uColor"
-    ) as WebGLUniformLocation;
+    this.color = gl.getUniformLocation(shader,"uColor") as WebGLUniformLocation;
     this.pointSize = gl.getUniformLocation(shader, "uPointSize") as WebGLUniformLocation;;
-    this.projection = gl.getUniformLocation(
-      shader,
-      "uPMatrix"
-    ) as WebGLUniformLocation;
-    this.modelView = gl.getUniformLocation(
-      shader,
-      "uMVMatrix"
-    ) as WebGLUniformLocation;
+    this.projection = gl.getUniformLocation(shader,"uPMatrix") as WebGLUniformLocation;
+    this.modelView = gl.getUniformLocation(shader,"uMVMatrix") as WebGLUniformLocation;
 
     gl.uniformMatrix4fv(this.projection, false, this.pMatrix);
     gl.uniformMatrix4fv(this.modelView, false, this.mvMatrix);
 
-    var background = [ -32768, -32768, 32767, -32768, -32768, 32767, 32767, 32767];
+    var background = [ -32768, -32768, 32766, -32768, -32768, 32766, 32766, 32766];
     var backgroundArray = new Int16Array(background);
+    const itemSize = 2
     this.backgroundBuffer = {
       data: gl.createBuffer() as WebGLBuffer,
-      itemSize: 2,
-      numItems: background.length / 3,
+      itemSize,
+      numItems: background.length / itemSize,
     };
     gl.bindBuffer(gl.ARRAY_BUFFER, this.backgroundBuffer.data);
     gl.bufferData(gl.ARRAY_BUFFER, backgroundArray, gl.STATIC_DRAW);
 
     // 测试
-    var debug = [ 0, 0, /**/ 4095, 0, /**/ 4095, 4095, /**/ 0, 4095, /**/ 0, 0];
+    var debug = [0, 0, /**/ 4095, 0, /**/ 4095, 4095, /**/ 0, 4095, /**/ 0, 0];
     var debugArray = new Int16Array(debug);
-
     this.debugBuffer = {
       data:gl.createBuffer() as WebGLBuffer,
-      itemSize:2,
-      numItems:debug.length / 2
+      itemSize,
+      numItems:debug.length / itemSize
     } 
     gl.bindBuffer(gl.ARRAY_BUFFER, this.debugBuffer.data);
     gl.bufferData(gl.ARRAY_BUFFER, debugArray, gl.STATIC_DRAW);
@@ -151,7 +141,7 @@ class GLPainter {
     z: number,
     x: number,
     y: number,
-    transform: ITransform,
+    transform: Transform,
     size:number,
     pixelRatio: number
   ) {
@@ -212,6 +202,20 @@ class GLPainter {
     );
     gl.uniform4f(this.color, 0.9098, 0.8784, 0.8471, 1);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, this.backgroundBuffer.numItems);
+
+    // // debug
+    // gl.bindBuffer(gl.ARRAY_BUFFER, this.debugBuffer.data);
+    // gl.vertexAttribPointer(
+    //   this.position,
+    //   this.backgroundBuffer.itemSize,
+    //   gl.SHORT,
+    //   false,
+    //   0,
+    //   0
+    // );
+    // gl.uniform4f(this.color, 1, 1, 0.8471, 1);
+    // gl.drawArrays(gl.TRIANGLE_STRIP, 0, this.backgroundBuffer.numItems);
+
 
     // Vertex Buffer
     gl.bindBuffer(gl.ARRAY_BUFFER, tile.geometry.vertexBuffer.data);

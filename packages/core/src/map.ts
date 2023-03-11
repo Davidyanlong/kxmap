@@ -1,26 +1,27 @@
-import { DEBUG } from "./libs/constant";
-import Interaction from "./libs/interaction";
-import GLPainter from "./libs/painter";
-import Tile from "./libs/tile";
-import MRUCache from "./utils/MRUCache";
-import { clamp } from "./utils/common";
-import { _ } from "./utils/underscore";
-import { parse_style,zoom_style, z_order } from './libs/style'
-import Transform from './libs/transform'
+import { DEBUG } from './libs/constant';
+import Interaction from './libs/interaction';
+import GLPainter from './libs/painter';
+import { parse_style, zoom_style, z_order } from './libs/style';
+import Tile from './libs/tile';
+import Transform from './libs/transform';
+import MRUCache from './utils/MRUCache';
+import { clamp } from './utils/common';
+import { _ } from './utils/underscore';
 
 interface IMapConfig {
-  canvas: HTMLCanvasElement,
-  labels: HTMLElement
+  canvas: HTMLCanvasElement;
+  labels: HTMLElement;
   urls: string[]; // 可用的瓦片请请求地址池
   zooms: number[]; // 缩放的等级列表
   minZoom: number; // 最小等级
   maxZoom: number; // 最大等级
   minTileZoom: number; // 瓦片的最小等级
   maxTileZoom: number; // 瓦片的最大等级
-  style:Record<string,any>
-  zoom:number
-  lat:number
-  lon:number
+  style: Record<string, any>;
+  zoom: number;
+  lat: number;
+  lon: number;
+  container: HTMLDivElement;
 }
 
 interface IExtent {
@@ -39,7 +40,7 @@ class Map {
     dom: HTMLCanvasElement;
     scaled: boolean;
   };
-  labels:HTMLElement;
+  labels: HTMLElement;
   cache: MRUCache;
   urls: string[];
   zooms: number[];
@@ -54,21 +55,19 @@ class Map {
   painter: GLPainter;
   interaction: Interaction;
   dirty: boolean;
-  style:Record<string,any>
-  size:number 
-  lastHash:string
-  private _updateHashTimeout:NodeJS.Timeout | null
+  style: Record<string, any>;
+  size: number;
+  lastHash: string;
+  container: HTMLDivElement;
+  private _updateHashTimeout: NodeJS.Timeout | null;
 
   constructor(config: IMapConfig) {
     // 初始化瓦片数据集
     this.tiles = Object.create(null);
+    this.transform = new Transform(512);
 
-    // 初始化画布
-    this.canvas = {
-      dom: config.canvas,
-      scaled: false,
-    };
-    this.labels = config.labels;
+    this.setupContainer(config.container);
+    this.setupPosition(config);
 
     // 初始化瓦片缓存
     // TODO: Rework MRU cache handling (flickering!)
@@ -83,32 +82,17 @@ class Map {
     this.maxZoom = config.maxZoom || 18;
     this.minTileZoom = _.first(this.zooms) as number;
     this.maxTileZoom = _.last(this.zooms) as number;
-    // this.zoom = config.zoom || 0;
-    // this.lat = config.lat || 0;
-    // this.lon = config.lon || 0;
 
-    this.style = config.style;
-    this.style.layers = parse_style(this.style.layers, this.style.constants);
+    this.setupStyle(config.style);
 
 
-    this.size = 512;
-
-    // 初始化画布
-    this.setupCanvas();
-    // 初始化transform
-
-    this.transform = new Transform(512);
-    this.setupTransform(config);
-
-    // 初始化WebGL上下文，绘制类
+    this.setupStyle(config.style);
     this.setupPainter();
-    // 初始化相关事件，移动，缩放等
     this.setupEvents();
 
     this.dirty = false;
     this.updateStyle();
     this.updateTiles();
-    this.updateHash();
     this.rerender();
   }
 
@@ -116,77 +100,105 @@ class Map {
     var pos = Tile.fromID(id);
     // x|0 对x向下取整
     return this.urls[(Math.random() * this.urls.length) | 0]
-      .replace("{z}", pos.z.toFixed(0))
-      .replace("{x}", pos.x.toFixed(0))
-      .replace("{y}", pos.y.toFixed(0));
+      .replace('{z}', pos.z.toFixed(0))
+      .replace('{x}', pos.x.toFixed(0))
+      .replace('{y}', pos.y.toFixed(0));
+  }
+  setupStyle(style: any) {
+    this.style = style;
+    this.style.layers = parse_style(this.style.layers, this.style.constants);
   }
 
-  setupCanvas() {
-    if (DEBUG) console.time("Map#setupCanvas");
-
-    // Scales the canvas for high-resolution displays.
+  setupContainer(container: HTMLDivElement) {
     this.pixelRatio = 1;
-    if (
-      "devicePixelRatio" in window &&
-      devicePixelRatio > 1 &&
-      !this.canvas.scaled
-    ) {
-      const pixelRatio = (this.pixelRatio = window.devicePixelRatio);
-      // canvas对象
-      let canvas = this.canvas.dom;
-
-      canvas.style.width = canvas.offsetWidth + "px";
-      canvas.style.height = canvas.offsetHeight + "px";
-
-      // 乘以屏幕像素率就不模糊
-      canvas.width = canvas.offsetWidth * pixelRatio;
-      canvas.height = canvas.offsetHeight * pixelRatio;
-
-      this.canvas.scaled = true;
+    // Scales the canvas for high-resolution displays.
+    if ('devicePixelRatio' in window && devicePixelRatio > 1) {
+      this.pixelRatio = devicePixelRatio;
     }
 
-    if (DEBUG) console.timeEnd("Map#setupCanvas");
+    // Setup size
+    var rect = container.getBoundingClientRect();
+    this.transform.width = rect.width;
+    this.transform.height = rect.height;
+
+    // Setup WebGL canvas
+    var canvas = document.createElement('canvas');
+    canvas.width = rect.width * this.pixelRatio;
+    canvas.height = rect.height * this.pixelRatio;
+    canvas.style.width = rect.width + 'px';
+    canvas.style.height = rect.height + 'px';
+    canvas.style.position = 'absolute';
+    container.appendChild(canvas);
+    this.canvas = {
+      dom: canvas,
+      scaled: false,
+    };
+
+    // Setup SVG overlay
+    // TODO
+
+    this.container = container;
+  }
+  setupPosition(pos: IMapConfig) {
+    if (!this.parseHash()) {
+      this.setPosition(pos.zoom, pos.lat, pos.lon);
+    }
+
+    window.addEventListener(
+      'hashchange',
+      (ev) => {
+        if (location.hash !== this.lastHash) {
+          this.parseHash();
+          this.updateStyle();
+          this.updateTiles();
+          this.rerender();
+        }
+      },
+      false,
+    );
   }
 
-  setupTransform(pos:IMapConfig) {
+  setupTransform(pos: IMapConfig) {
     this.transform.width = this.canvas.dom.offsetWidth;
     this.transform.height = this.canvas.dom.offsetHeight;
 
     if (!this.parseHash()) {
-        this.setPosition(pos.zoom, pos.lat, pos.lon);
+      this.setPosition(pos.zoom, pos.lat, pos.lon);
     }
 
-    window.addEventListener("hashchange", (ev) =>{
+    window.addEventListener(
+      'hashchange',
+      (ev) => {
         if (location.hash !== this.lastHash) {
-            this.parseHash();
-            this.updateStyle();
-            this.updateTiles();
-            this.rerender();
+          this.parseHash();
+          this.updateStyle();
+          this.updateTiles();
+          this.rerender();
         }
-    }, false);
+      },
+      false,
+    );
   }
 
   setupPainter() {
-    if (DEBUG) console.time("Map#setupPainter");
     // WebGL 上下文
-    const gl = this.canvas.dom.getContext("webgl", { antialias: true, alpha: false});
+    const gl = this.canvas.dom.getContext('webgl', { antialias: true, alpha: false });
     if (!gl) {
-      alert("Failed to initialize WebGL");
+      alert('Failed to initialize WebGL');
       return;
     }
     // 实例化绘制对象
     this.painter = new GLPainter(gl);
-    if (DEBUG) console.timeEnd("Map#setupPainter");
   }
   setupEvents() {
     // 实例化事件对象
-    this.interaction = new Interaction(this.labels)
-      .on("pan", (x: number, y: number) => {
+    this.interaction = new Interaction(this.container)
+      .on('pan', (x: number, y: number) => {
         this.translate(x, y);
         this.updateTiles();
         this.rerender();
       })
-      .on("zoom", (delta: number, x: number, y: number) => {
+      .on('zoom', (delta: number, x: number, y: number) => {
         // Scale by sigmoid of scroll wheel delta.
         var scale = 2 / (1 + Math.exp(-Math.abs(delta / 100) / 4));
         if (delta < 0 && scale !== 0) scale = 1 / scale;
@@ -197,22 +209,21 @@ class Map {
     // .on('click', function(x, y) {
     //     map.click(x, y);
     // });
-    // console.warn('setupEvents');
   }
   // 平移
   translate(x: number, y: number) {
     this.transform.x += x;
     this.transform.y -= y;
+    console.log('translate',this.transform.x ,this.transform.y)
     this.updateHash();
   }
   // 更新瓦片
   updateTiles() {
-    const map = this;
     // if (DEBUG) console.warn('Map#updateTiles');
-    
+
     // 当前的地图等级
     let zoom = this.transform.zoom;
-     // TODO: Increase maxcoveringzoom. To do this, we have to clip the gl viewport
+    // TODO: Increase maxcoveringzoom. To do this, we have to clip the gl viewport
     // to the actual visible canvas and shift the projection matrix
     // 存在的最大等级
     let maxCoveringZoom = Math.min(this.maxTileZoom, zoom + 3);
@@ -223,9 +234,8 @@ class Map {
 
     // 当前屏幕需要获得的所有瓦片Id[]
     let required = this.getCoveringTiles();
-    if (DEBUG) console.log('required=>', zoom, required);
 
-     let missing:number[] = [];
+    let missing: number[] = [];
 
     // Add every tile, and add parent/child tiles if they are not yet loaded.
     for (let i = 0; i < required.length; i++) {
@@ -285,8 +295,8 @@ class Map {
         // children of this tile.
         // cache 中存放的所有Tile ID 数组
         const keys = this.cache.keys();
-        
-        for (let j = 0,len =keys.length ; j < len ; j++) {
+
+        for (let j = 0, len = keys.length; j < len; j++) {
           let childID = keys[j] as number;
           // 计算这个Tile ID 的父级ID是否与当前的父级ID一致
           let parentID = Tile.parentWithZoom(childID, missingZoom);
@@ -301,7 +311,7 @@ class Map {
         // of the current missing tile.
         // 遍历所有已有瓦片集中的瓦片
         for (let childID in this.tiles) {
-          let _childID= +childID;
+          let _childID = +childID;
           // 计算这个Tile ID 的父级ID是否与当前的父级ID一致
           let parentID = Tile.parentWithZoom(_childID as number, missingZoom);
           // 如果是就是这个瓦片的子集 并且加载完成
@@ -322,9 +332,9 @@ class Map {
     // 对比需要请求的瓦片与已经存在的瓦片，哪些是不需要的
     let remove = _.difference(existing, required);
     // 移除不需要的瓦片
-    _.each(remove, function (id) {
+    _.each(remove,  (id) =>{
       // 根据 Tile  Id 移除瓦片
-      map.removeTile(id);
+      this.removeTile(id);
     });
   }
   // 根据当前等级获取父级的zoom
@@ -356,9 +366,9 @@ class Map {
     // 横向 与纵向 的瓦片 范围
     var bounds = {
       minX: clamp(Math.floor(extent.left / this.transform.size), 0, dim - 1),
-        minY: clamp(Math.floor(extent.bottom / this.transform.size), 0, dim - 1),
-        maxX: clamp(Math.floor((extent.right) / this.transform.size), 0, dim - 1),
-        maxY: clamp(Math.floor((extent.top) / this.transform.size), 0, dim - 1)
+      minY: clamp(Math.floor(extent.bottom / this.transform.size), 0, dim - 1),
+      maxX: clamp(Math.floor(extent.right / this.transform.size), 0, dim - 1),
+      maxY: clamp(Math.floor(extent.top / this.transform.size), 0, dim - 1),
     };
     // if (DEBUG) console.log('Map#bounds', bounds);
 
@@ -373,18 +383,19 @@ class Map {
     return tiles;
   }
   getPixelExtent(): IExtent {
-    var zoom = this.coveringZoomLevel();
-    var factor = Math.pow(2, zoom) / this.transform.scale;
+    // Convert the pixel values to the next higher zoom level's tiles.
+    const zoom = this.coveringZoomLevel();
+    const factor = Math.pow(2, zoom) / this.transform.scale;
     return {
-        left: -this.transform.x * factor,
-        top: -(this.transform.y - this.transform.height) * factor,
-        right: -(this.transform.x - this.transform.width) * factor,
-        bottom: -this.transform.y * factor
+      left: -this.transform.x * factor,
+      top: -(this.transform.y - this.transform.height) * factor,
+      right: -(this.transform.x - this.transform.width) * factor,
+      bottom: -this.transform.y * factor,
     };
   }
   // 当前可用的zoom等级
   coveringZoomLevel() {
-     const zoom = this.transform.zoom;
+    const zoom = this.transform.zoom;
     for (let i = this.zooms.length - 1; i >= 0; i--) {
       if (this.zooms[i] <= zoom) {
         return this.zooms[i];
@@ -401,12 +412,12 @@ class Map {
     let tile = this.cache.get<Tile>(id);
     if (tile) {
       //TODO: add log system
-      console.warn("adding from mru", Tile.asString(id));
+      console.warn('adding from mru', Tile.asString(id));
       // 将瓦片的相关数据转换为渲染数据
       tile.addToMap(this);
     } else {
-      // 创建新的tiles 
-      tile = this.tiles[id] = new Tile(this.url(id),  (err)=> {
+      // 创建新的tiles
+      tile = this.tiles[id] = new Tile(this.url(id), (err) => {
         if (err) {
           console.warn(err.stack);
         } else {
@@ -460,42 +471,29 @@ class Map {
         this.renderTile(tile, id);
       }
     }
-
-    //     // TODO: Add subpixel positioning (slightly offset ortho projection to accomodate)
-    //     // TODO: Draw parent tile where no child tiles exist
-    //     // TODO: Check whether offsetting a tile by the current zoom level's map width
-    //     //       is still within the viewport. If it is, draw it again at that position.
-
-    // if (DEBUG) console.timeEnd('Map#render');
   };
-  renderTile(tile: Tile, id: number,style?:any) {
+  renderTile(tile: Tile, id: number, style?: any) {
     // 通过Tile ID 计算 z y x 值
     var pos = Tile.fromID(id);
-    var z = pos.z,
-      x = pos.x,
-      y = pos.y;
+    var z = pos.z, x = pos.x, y = pos.y;
 
-      this.painter.viewport(z, x, y, this.transform, this.transform.size, this.pixelRatio);
+    this.painter.viewport(z, x, y, this.transform, this.transform.size, this.pixelRatio);
     // 绘制瓦片
     this.painter.draw(tile, this.style.zoomed_layers);
   }
   zoom(scale: number, anchorX: number, anchorY: number) {
     anchorY = this.transform.height - anchorY - 1;
 
-    var posX = anchorX - this.transform.x;
-    var posY = anchorY - this.transform.y;
+    let posX = anchorX - this.transform.x;
+    let posY = anchorY - this.transform.y;
 
-    var oldScale = this.transform.scale;
+    let oldScale = this.transform.scale;
 
-
-    var real = this.transform.scale * scale;
-    var min = Math.max(0.5, Math.max(1 << this.minZoom, real));
+    let real = this.transform.scale * scale;
+    let min = Math.max(0.5, Math.max(1 << this.minZoom, real));
     this.transform.scale = Math.min(1 << this.maxZoom, min);
 
-    this.transform.scale = Math.min(
-      1 << this.maxZoom,
-      Math.max(1 << this.minZoom, this.transform.scale * scale)
-    );
+    this.transform.scale = Math.min(1 << this.maxZoom, Math.max(1 << this.minZoom, this.transform.scale * scale));
 
     scale = this.transform.scale / oldScale;
     this.transform.x -= posX * scale - posX;
@@ -507,44 +505,38 @@ class Map {
   rerender() {
     if (!this.dirty) {
       this.dirty = true;
-      (
-        window.requestAnimationFrame ||
-        window.mozRequestAnimationFrame ||
-        window.webkitRequestAnimationFrame ||
-        window.msRequestAnimationFrame
-      )(this.render);
+      (window.requestAnimationFrame || window.mozRequestAnimationFrame || window.webkitRequestAnimationFrame || window.msRequestAnimationFrame)(
+        this.render,
+      );
     }
   }
   updateStyle() {
     this.style.zoomed_layers = zoom_style(this.style.layers, this.style.constants, this.transform.zoom);
-   }
+  }
   updateHash() {
     if (this._updateHashTimeout) {
-        clearTimeout(this._updateHashTimeout);
+      clearTimeout(this._updateHashTimeout);
     }
 
-
-    this._updateHashTimeout = setTimeout(()=> {
-      var hash = '#' + (this.transform.z + 1).toFixed(2) +
-      '/' + this.transform.lat.toFixed(6) +
-      '/' + this.transform.lon.toFixed(6);
-  this.lastHash = hash;
-  location.replace(hash);
-  this._updateHashTimeout = null;
+    this._updateHashTimeout = setTimeout(() => {
+      var hash = '#' + (this.transform.z + 1).toFixed(2) + '/' + this.transform.lat.toFixed(6) + '/' + this.transform.lon.toFixed(6);
+      this.lastHash = hash;
+      location.replace(hash);
+      this._updateHashTimeout = null;
     }, 100);
-}
-setPosition(zoom:number, lat:number, lon:number) {
-  this.transform.zoom = zoom - 1;
-  this.transform.lat = lat;
-  this.transform.lon = lon;
-}
-parseHash () {
-  var match = location.hash.match(/^#(\d+(?:\.\d+)?)\/(-?\d+(?:\.\d+)?)\/(-?\d+(?:\.\d+)?)$/);
-  if (match) {
+  }
+  setPosition(zoom: number, lat: number, lon: number) {
+    this.transform.zoom = zoom - 1;
+    this.transform.lat = lat;
+    this.transform.lon = lon;
+  }
+  parseHash() {
+    var match = location.hash.match(/^#(\d+(?:\.\d+)?)\/(-?\d+(?:\.\d+)?)\/(-?\d+(?:\.\d+)?)$/);
+    if (match) {
       this.setPosition(+match[1], +match[2], +match[3]);
       return true;
+    }
   }
-}
 }
 
 export default Map;
