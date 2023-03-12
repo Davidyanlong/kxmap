@@ -5,7 +5,7 @@ import { parse_style, zoom_style, z_order } from './libs/style';
 import Tile from './libs/tile';
 import Transform from './libs/transform';
 import MRUCache from './utils/MRUCache';
-import { clamp } from './utils/common';
+import { clamp, rotate, vectorMag, vectorSub } from './utils/common';
 import { _ } from './utils/underscore';
 
 interface IMapConfig {
@@ -21,7 +21,9 @@ interface IMapConfig {
   zoom: number;
   lat: number;
   lon: number;
+  rotation:number;
   container: HTMLDivElement;
+
 }
 
 interface IExtent {
@@ -144,7 +146,7 @@ class Map {
   }
   setupPosition(pos: IMapConfig) {
     if (!this.parseHash()) {
-      this.setPosition(pos.zoom, pos.lat, pos.lon);
+      this.setPosition(pos.zoom, pos.lat, pos.lon,pos.rotation);
     }
 
     window.addEventListener(
@@ -165,7 +167,7 @@ class Map {
     this.transform.height = this.canvas.dom.offsetHeight;
 
     if (!this.parseHash()) {
-      this.setPosition(pos.zoom, pos.lat, pos.lon);
+      this.setPosition(pos.zoom, pos.lat, pos.lon, pos.rotation);
     }
 
     window.addEventListener(
@@ -209,7 +211,39 @@ class Map {
         if (delta < 0 && scale !== 0) scale = 1 / scale;
         this.zoom(scale, x, y);
         this.update();
+      })
+      .on('rotate', (start:number[], end:number[])=> { // [x, y] arrays
+        var center = [ window.innerWidth / 2, window.innerHeight / 2 ],
+            relativeStart = vectorSub(start, center),
+            relativeEnd = vectorSub(end, center),
+
+            startMagnitude = vectorMag(relativeStart),
+            endMagnitude = vectorMag(relativeEnd); 
+
+        var angle = Math.asin((relativeStart[0]*relativeEnd[1] - relativeStart[1]*relativeEnd[0]) / (startMagnitude * endMagnitude));
+
+        this.transform.rotation -= angle;
+        if (this.transform.rotation > Math.PI) {
+            this.transform.rotation -= Math.PI*2;
+        }
+        else if (this.transform.rotation < -Math.PI) {
+            this.transform.rotation += Math.PI*2;
+        }
+        var newC = vectorSub(center, rotate(-angle, vectorSub(center, [this.transform.x, this.transform.y])));
+
+        this.transform.x = newC[0];
+        this.transform.y = newC[1];
+
+        // Could also potentially scale with this movement, but it doesn't play well with rotation (yet).
+        //map.transform.scale *= startMagnitude / endMagnitude;
+        //map.transform.x += endMagnitude - startMagnitude;
+        //map.transform.y += endMagnitude - startMagnitude;
+
+        this.updateStyle();
+        this.updateHash();
+        this.update();
       });
+  
     // .on('click', function(x, y) {
     //     map.click(x, y);
     // });
@@ -218,7 +252,7 @@ class Map {
   translate(x: number, y: number) {
     this.transform.x += x;
     this.transform.y += y;
-    console.log('translate', this.transform.x, this.transform.y);
+    console.log('translate', this.transform.x, this.transform.y, this.transform);
     this.updateHash();
   }
   // 更新瓦片
@@ -525,21 +559,26 @@ class Map {
     }
 
     this._updateHashTimeout = setTimeout(() => {
-      var hash = '#' + (this.transform.z + 1).toFixed(2) + '/' + this.transform.lat.toFixed(6) + '/' + this.transform.lon.toFixed(6);
+      var hash = '#' + (
+        this.transform.z + 1).toFixed(2) + 
+        '/' + this.transform.lat.toFixed(6) + 
+        '/' + this.transform.lon.toFixed(6) +
+        '/' + this.transform.rotation.toFixed(6);
       this.lastHash = hash;
       location.replace(hash);
       this._updateHashTimeout = null;
     }, 100);
   }
-  setPosition(zoom: number, lat: number, lon: number) {
+  setPosition(zoom: number, lat: number, lon: number,rotation:number) {
     this.transform.zoom = zoom - 1;
     this.transform.lat = lat;
     this.transform.lon = lon;
+    this.transform.rotation = +rotation;
   }
   parseHash() {
-    var match = location.hash.match(/^#(\d+(?:\.\d+)?)\/(-?\d+(?:\.\d+)?)\/(-?\d+(?:\.\d+)?)$/);
+    var match = location.hash.match(/^#(\d+(?:\.\d+)?)\/(-?\d+(?:\.\d+)?)\/(-?\d+(?:\.\d+)?)\/(-?\d+(?:\.\d+)?)$/);
     if (match) {
-      this.setPosition(+match[1], +match[2], +match[3]);
+      this.setPosition(+match[1], +match[2], +match[3],+match[4]);
       return true;
     }
   }

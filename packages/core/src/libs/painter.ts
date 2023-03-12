@@ -153,6 +153,9 @@ class GLPainter {
     var viewMatrix = mat4.create();
     mat4.identity(viewMatrix);
     mat4.translate(viewMatrix, viewMatrix,[ transform.x + scale * x, transform.y + scale * y, 0 ]);
+    mat4.translate(viewMatrix, viewMatrix,[ transform.x, transform.y, 0 ]);
+    mat4.rotateZ(viewMatrix,viewMatrix, transform.rotation);
+    mat4.translate(viewMatrix, viewMatrix,[ scale * x, scale * y, 0 ]);
     mat4.scale(viewMatrix, viewMatrix, [ scale / tileExtent, scale / tileExtent, 1 ]);
     gl.uniformMatrix4fv(this.modelView, false, viewMatrix);
 

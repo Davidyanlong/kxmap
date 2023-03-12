@@ -10,6 +10,7 @@ class Transform {
   private _hH: number;
   x: number;
   y: number;
+  rotation:number
   constructor(size: number) {
     this._size = size; // constant
 
@@ -21,12 +22,20 @@ class Transform {
 
     this.x = 0;
     this.y = 0;
+
+    this.rotation = 0;
   }
   get size() {
     return this._size;
   }
   get world() {
     return this._size * this.scale;
+  }
+  get center() {
+    return [
+        this.x - this.world/2*Math.sqrt(2)*Math.cos(this.rotation-3*Math.PI/4),
+        this.y - this.world/2*Math.sqrt(2)*Math.sin(this.rotation-3*Math.PI/4)
+    ];
   }
   get scale() {
     return this._scale;
@@ -67,11 +76,11 @@ class Transform {
   }
 
   get lon() {
-    return -(this.x + this._zc - this._hW) / this._Bc;
+    return -(this.center[0] - this._hW) / this._Bc;
   }
 
   set lon(lon) {
-    this.x = -(+lon * this._Bc + this._zc) + this._hW;
+    this.x = -(+lon * this._Bc - this.world/2*Math.sqrt(2)*Math.cos(this.rotation-3*Math.PI/4)) + this._hW;
   }
 
   get lat() {
